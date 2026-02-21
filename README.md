@@ -32,11 +32,15 @@ SUPABASE_POSTGRES_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<regi
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
 TWILIO_FROM_NUMBER=...
+
+# Workflow bridge base URL (inbound SMS forwards to /sms)
+WORKFLOW_WEBHOOK_URL=https://your-workflow-domain.example/twilio/webhooks
 ```
 
 - **SUPABASE_URL** — Project URL (API URL).
 - **SUPABASE_POSTGRES_URL** — Direct Postgres connection string (e.g. from Supabase → Settings → Database → Connection string, “URI” / “Transaction” pooler).
 - **TWILIO_ACCOUNT_SID**, **TWILIO_AUTH_TOKEN**, **TWILIO_FROM_NUMBER** — required for SMS webhook verification and outbound delivery.
+- **WORKFLOW_WEBHOOK_URL** — workflow base URL; inbound SMS events are forwarded to `${WORKFLOW_WEBHOOK_URL}/sms`.
 
 The API and the migration script (`npm run migrate`) both read from this file. If either variable is missing, the API will fail on startup with a clear error.
 

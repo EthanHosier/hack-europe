@@ -1,7 +1,10 @@
 from datetime import UTC, datetime
+import json
 from typing import Any
+from urllib import error, request
 
 from pydantic import BaseModel
+from env import WORKFLOW_WEBHOOK_URL
 
 
 class InboundWorkflowEvent(BaseModel):
@@ -32,10 +35,35 @@ def build_inbound_event(
 
 
 def handle_inbound_message(event: InboundWorkflowEvent) -> dict[str, Any]:
-    # Placeholder contract for the AI teammate. Keep this payload stable.
+    # Use WORKFLOW_WEBHOOK_URL as a base URL and route SMS events to /sms.
+    target_url = f"{WORKFLOW_WEBHOOK_URL.rstrip('/')}/sms"
+    payload = event.model_dump()
+
+    req = request.Request(
+        target_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=5) as response:
+            status_code = response.getcode()
+    except error.URLError as exc:
+        return {
+            "status": "accepted",
+            "workflow": "pending_ai_agent",
+            "source": event.source,
+            "provider_message_sid": event.provider_message_sid,
+            "forwarded_to": target_url,
+            "forward_status": "failed",
+            "forward_error": str(exc),
+        }
+
     return {
         "status": "accepted",
         "workflow": "pending_ai_agent",
         "source": event.source,
         "provider_message_sid": event.provider_message_sid,
+        "forwarded_to": target_url,
+        "forward_status": status_code,
     }
