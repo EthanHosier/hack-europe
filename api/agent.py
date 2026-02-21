@@ -124,8 +124,16 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
         )
 
         try:
-            # Parse the JSON response
-            content = response.content.strip()
+            # Handle both string and list response formats from Gemini
+            if isinstance(response.content, list):
+                # Extract text from content blocks
+                content = "".join(
+                    block.get("text", "") if isinstance(block, dict) else str(block)
+                    for block in response.content
+                ).strip()
+            else:
+                content = str(response.content).strip()
+
             # Remove markdown code blocks if present
             if content.startswith("```json"):
                 content = content[7:]
@@ -247,7 +255,15 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
 
         # Get response from LLM
         response = self.llm.invoke(messages)
-        response_text = response.content
+        # Handle both string and list response formats from Gemini
+        if isinstance(response.content, list):
+            # Extract text from content blocks
+            response_text = "".join(
+                block.get("text", "") if isinstance(block, dict) else str(block)
+                for block in response.content
+            )
+        else:
+            response_text = str(response.content)
 
         # Extract information from the conversation
         full_conversation = conversation_history + [
