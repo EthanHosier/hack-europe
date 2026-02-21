@@ -15,5 +15,5 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 twilio==9.10.2
 uvicorn[standard]==0.41.0
-langchain-google-genai
-geopy
+langchain-google-genai>=1.0.0
+geopy>=2.4.0
