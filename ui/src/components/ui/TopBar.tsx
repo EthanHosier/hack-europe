@@ -22,7 +22,7 @@ export function TopBar({
         </div>
         <div className="h-4 w-px bg-[#2a3441]" />
         <span className="text-[13px] text-[#9ca3af] tracking-wide">
-          RAPIDRELIEF COMMAND
+          CONSOLE
         </span>
       </div>
 

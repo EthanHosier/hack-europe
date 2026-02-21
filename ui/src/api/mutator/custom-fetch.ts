@@ -20,16 +20,18 @@ export const customFetch = async <T>(
     signal?: AbortSignal;
     params?: Record<string, unknown>;
     data?: unknown;
+    headers?: Record<string, string>;
   },
   _options?: unknown
 ): Promise<{ status: number; data: T }> => {
-  const { url, method, signal, data } = config;
+  const { url, method, signal, data, headers } = config;
   const requestUrl = getRequestUrl(url);
   const response = await fetch(requestUrl, {
     method,
     signal,
     headers: {
       "Content-Type": "application/json",
+      ...headers,
     },
     body: data !== undefined ? JSON.stringify(data) : undefined,
   });
