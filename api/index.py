@@ -1,21 +1,31 @@
+"""
+HackEurope API: health, SMS/voice webhooks, messages.
+"""
+
 import json
 import logging
-from typing import Any
-
-import psycopg
-from fastapi import FastAPI, HTTPException, Request
 import uuid
 from datetime import datetime
-from typing import List, Optional, Tuple, Dict, Literal
+from typing import Any, Dict, List, Literal, Optional, Tuple
+
+import psycopg
 from psycopg.rows import dict_row
-from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 from twilio.base.exceptions import TwilioRestException
 
-from env import SUPABASE_POSTGRES_URL
-from twilio_service import TwilioConfigError, send_sms, validate_twilio_signature
+from env import SUPABASE_POSTGRES_URL, VOICE_STREAM_WS_URL
+from workflow_bridge import build_inbound_event, handle_inbound_message
+from db import persist_event, persist_text_message
+from twilio_app import (
+    TwilioConfigError,
+    build_connect_stream_twiml,
+    build_say_hangup_twiml,
+    handle_voice_media_stream,
+    send_sms,
+)
 from agent import EmergencyAgent, EmergencyInfo
 
 app = FastAPI(title="HackEurope API")
@@ -28,6 +38,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- Response models ---
 
 
 class RootResponse(BaseModel):
@@ -61,72 +74,7 @@ class SendSmsResponse(BaseModel):
     persistence_error: str | None = None
 
 
-def persist_text_message(
-    *,
-    target: str,
-    raw_text: str,
-    direction: str,
-    provider_message_sid: str | None = None,
-    delivery_status: str | None = None,
-) -> str:
-    with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO text_message (
-                        source, target, raw_text, direction, provider_message_sid, delivery_status
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (
-                        "SMS",
-                        target,
-                        raw_text,
-                        direction,
-                        provider_message_sid,
-                        delivery_status,
-                    ),
-                )
-                inserted_id = cur.fetchone()[0]
-            except psycopg.errors.UndefinedColumn:
-                # Backward compatibility if migrations were not applied yet.
-                cur.execute(
-                    """
-                    INSERT INTO text_message (source, target, raw_text)
-                    VALUES (%s, %s, %s)
-                    RETURNING id
-                    """,
-                    ("SMS", target, raw_text),
-                )
-                inserted_id = cur.fetchone()[0]
-    return str(inserted_id)
-
-
-def persist_event(
-    *,
-    case_id: str,
-    description: str,
-    text_message_id: str | None = None,
-) -> None:
-    with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO event (case_id, description, text_message_id)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (case_id, description, text_message_id),
-                )
-            except psycopg.errors.UndefinedColumn:
-                cur.execute(
-                    """
-                    INSERT INTO event (case_id, description)
-                    VALUES (%s, %s)
-                    """,
-                    (case_id, description),
-                )
+# --- Health & debug ---
 
 
 # Emergency Response Models
@@ -221,6 +169,19 @@ class ResourceResponse(BaseModel):
     distance_km: Optional[float] = None
 
 
+class LiveEventResponse(BaseModel):
+    event_id: str
+    case_id: str
+    description: str
+    latitude: float
+    longitude: float
+    timestamp: datetime
+    case_severity: int
+    case_status: str
+    case_category: Optional[str] = None
+    case_title: Optional[str] = None
+
+
 # Emergency categorization patterns
 EMERGENCY_PATTERNS = {
     "fuel": [
@@ -300,9 +261,24 @@ def healthcheck() -> HealthResponse:
     return HealthResponse(status="ok", version="0.1.0")
 
 
+@app.get("/debug/routes")
+def debug_routes() -> dict[str, list[str]]:
+    """Registered routes (path -> methods). Remove in production if desired."""
+    routes: dict[str, list[str]] = {}
+    for r in app.routes:
+        path = getattr(r, "path", None)
+        if not path or path == "/debug/routes":
+            continue
+        methods = getattr(r, "methods", None)
+        if methods is not None:
+            routes[path] = sorted(methods) if isinstance(methods, set) else list(methods)
+        else:
+            routes[path] = ["WS"]
+    return routes
+
+
 @app.get("/db/health", response_model=DbHealthResponse)
 def db_health() -> DbHealthResponse:
-    """Check connection to the database."""
     try:
         with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
             with conn.cursor() as cur:
@@ -313,18 +289,19 @@ def db_health() -> DbHealthResponse:
         raise HTTPException(status_code=503, detail=str(e))
 
 
+# --- Twilio SMS webhook ---
+
+
 @app.post("/twilio/webhooks/sms")
 async def twilio_sms_webhook(request: Request) -> Response:
-    headers = {k: v for k, v in request.headers.items()}
     payload: dict[str, str] = {}
     try:
         form = await request.form()
         payload = {k: str(v) for k, v in form.items()}
         webhook_logger.info(
-            "twilio_sms_inbound_received method=%s url=%s headers=%s payload=%s",
+            "twilio_sms_inbound_received method=%s url=%s payload=%s",
             request.method,
             str(request.url),
-            json.dumps(headers, ensure_ascii=False),
             json.dumps(payload, ensure_ascii=False),
         )
 
@@ -334,10 +311,7 @@ async def twilio_sms_webhook(request: Request) -> Response:
         message_sid = payload.get("MessageSid")
 
         if not from_number or not to_number or not body:
-            webhook_logger.warning(
-                "twilio_sms_inbound_missing_fields payload=%s",
-                json.dumps(payload, ensure_ascii=False),
-            )
+            webhook_logger.warning("twilio_sms_inbound_missing_fields payload=%s", json.dumps(payload, ensure_ascii=False))
             raise HTTPException(status_code=400, detail="Missing Twilio message fields")
 
         message_row_id = persist_text_message(
@@ -348,7 +322,7 @@ async def twilio_sms_webhook(request: Request) -> Response:
             delivery_status="received",
         )
         webhook_logger.info(
-            "twilio_sms_inbound_persisted message_row_id=%s message_sid=%s from_number=%s to_number=%s",
+            "twilio_sms_inbound_persisted message_row_id=%s message_sid=%s from=%s to=%s",
             message_row_id,
             message_sid,
             from_number,
@@ -360,7 +334,6 @@ async def twilio_sms_webhook(request: Request) -> Response:
         try:
             with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
                 with conn.cursor() as cur:
-                    # Get recent messages from this phone number (limit to last 10 for context)
                     cur.execute(
                         """
                         SELECT raw_text, direction, created_at
@@ -373,103 +346,66 @@ async def twilio_sms_webhook(request: Request) -> Response:
                         (from_number, message_row_id),
                     )
                     messages = cur.fetchall()
-
-                    # Build conversation history in chronological order
-                    for msg in reversed(messages):  # Reverse to get chronological order
+                    for msg in reversed(messages):
                         if msg["direction"] == "Inbound":
-                            conversation_history.append({
-                                "role": "user",
-                                "content": msg["raw_text"]
-                            })
+                            conversation_history.append({"role": "user", "content": msg["raw_text"]})
                         else:
-                            conversation_history.append({
-                                "role": "assistant",
-                                "content": msg["raw_text"]
-                            })
+                            conversation_history.append({"role": "assistant", "content": msg["raw_text"]})
         except Exception as e:
-            webhook_logger.error(f"Failed to get conversation history: {e}")
+            webhook_logger.error("Failed to get conversation history: %s", e)
 
         # Process message through the AI agent
         try:
             agent = EmergencyAgent(SUPABASE_POSTGRES_URL)
-
-            # Generate a UUID for user_id, but use phone number for tracking
-            import uuid
             user_id = str(uuid.uuid4())
-            # Store the phone number in the metadata or use it for lookup later
-
-            # Process the message
             response_text, case_id, info = agent.process_message(
                 body, conversation_history, user_id, SUPABASE_POSTGRES_URL
             )
+        except Exception as e:
+            webhook_logger.exception("agent.process_message failed: %s", e)
+            response_text = "Sorry, we're unable to process your message right now."
 
-            # Limit SMS response to 1600 characters (SMS limit)
-            if len(response_text) > 1600:
-                response_text = response_text[:1597] + "..."
+        # Limit SMS response to 1600 characters (SMS limit)
+        if len(response_text) > 1600:
+            response_text = response_text[:1597] + "..."
 
-            # Send SMS response
+        # Send SMS response
+        try:
+            sms_result = send_sms(from_number, response_text)
+            persist_text_message(
+                target=from_number,
+                raw_text=response_text,
+                direction="Outbound",
+                provider_message_sid=sms_result.message_sid,
+                delivery_status=sms_result.status,
+            )
+            webhook_logger.info(
+                "twilio_sms_response_sent message_sid=%s to_number=%s response_length=%s",
+                sms_result.message_sid,
+                from_number,
+                len(response_text),
+            )
+        except Exception as e:
+            webhook_logger.error("Failed to send SMS response: %s", e)
             try:
-                # For testing: you can comment out the actual SMS sending if needed
-                sms_result = send_sms(from_number, response_text)
-
-                # Persist outbound message
-                outbound_msg_id = persist_text_message(
+                persist_text_message(
                     target=from_number,
                     raw_text=response_text,
                     direction="Outbound",
-                    provider_message_sid=sms_result.message_sid,
-                    delivery_status=sms_result.status,
+                    provider_message_sid=None,
+                    delivery_status="failed",
                 )
-
-                webhook_logger.info(
-                    "twilio_sms_response_sent message_sid=%s to_number=%s response_length=%s",
-                    sms_result.message_sid,
-                    from_number,
-                    len(response_text),
-                )
-            except Exception as e:
-                webhook_logger.error(f"Failed to send SMS response: {e}")
-                # Still persist the AI response even if SMS sending fails
-                try:
-                    persist_text_message(
-                        target=from_number,
-                        raw_text=response_text,
-                        direction="Outbound",
-                        provider_message_sid=None,
-                        delivery_status="failed",
-                    )
-                    webhook_logger.info(f"AI response saved despite SMS failure: {response_text[:100]}...")
-                except:
-                    pass
-
-            # Log case creation if applicable
-            if case_id:
-                persist_event(
-                    case_id=case_id,
-                    description=f"SMS Emergency: {body[:200]}",
-                    text_message_id=message_row_id,
-                )
-                webhook_logger.info(
-                    "twilio_sms_case_created case_id=%s from_number=%s",
-                    case_id,
-                    from_number,
-                )
-
-        except Exception as e:
-            webhook_logger.error(f"AI agent processing failed: {e}")
-            # Send a fallback message
-            try:
-                fallback_msg = "Emergency system received your message. If urgent, please call 911."
-                sms_result = send_sms(from_number, fallback_msg)
-                persist_text_message(
-                    target=from_number,
-                    raw_text=fallback_msg,
-                    direction="Outbound",
-                    provider_message_sid=sms_result.message_sid,
-                    delivery_status=sms_result.status,
-                )
-            except:
+            except Exception:
                 pass
+
+        # Log case creation if applicable
+        if case_id:
+            persist_event(
+                case_id=case_id,
+                description=f"SMS Emergency: {body[:200]}",
+                text_message_id=message_row_id,
+            )
+            webhook_logger.info("twilio_sms_case_created case_id=%s from_number=%s", case_id, from_number)
 
         webhook_logger.info("twilio_sms_inbound_processed message_sid=%s", message_sid)
         return Response(
@@ -477,21 +413,54 @@ async def twilio_sms_webhook(request: Request) -> Response:
             media_type="application/xml",
             status_code=200,
         )
-    except HTTPException as exc:
-        webhook_logger.warning(
-            "twilio_sms_inbound_http_error status_code=%s detail=%s payload=%s",
-            exc.status_code,
-            exc.detail,
-            json.dumps(payload, ensure_ascii=False),
-        )
+    except HTTPException:
         raise
     except Exception:
-        webhook_logger.exception(
-            "twilio_sms_inbound_failed headers=%s payload=%s",
-            json.dumps(headers, ensure_ascii=False),
-            json.dumps(payload, ensure_ascii=False),
-        )
+        webhook_logger.exception("twilio_sms_inbound_failed payload=%s", json.dumps(payload, ensure_ascii=False))
         raise
+
+
+# --- Twilio voice webhook & Media Stream WebSocket ---
+
+
+@app.post("/twilio/webhooks/voice")
+async def twilio_voice_webhook(request: Request) -> Response:
+    """Answer call with TwiML: connect to Media Stream (if VOICE_STREAM_WS_URL set) or say and hang up."""
+    payload: dict[str, str] = {}
+    try:
+        form = await request.form()
+        payload = {k: str(v) for k, v in form.items()}
+        call_sid = payload.get("CallSid", "").strip()
+        from_number = payload.get("From", "").strip()
+        to_number = payload.get("To", "").strip()
+
+        webhook_logger.info("twilio_voice_inbound call_sid=%s from=%s to=%s", call_sid, from_number, to_number)
+
+        if VOICE_STREAM_WS_URL:
+            twiml = build_connect_stream_twiml(
+                ws_url=VOICE_STREAM_WS_URL,
+                call_sid=call_sid,
+                from_number=from_number,
+                to_number=to_number,
+            )
+            webhook_logger.info("twilio_voice_connect_stream call_sid=%s ws_url=%s", call_sid, VOICE_STREAM_WS_URL)
+        else:
+            twiml = build_say_hangup_twiml("The voice service is not configured. Goodbye.")
+            webhook_logger.warning("twilio_voice_no_ws_url call_sid=%s returning say_hangup", call_sid)
+
+        return Response(content=twiml, media_type="application/xml", status_code=200)
+    except Exception:
+        webhook_logger.exception("twilio_voice_webhook_failed payload=%s", json.dumps(payload, ensure_ascii=False))
+        raise
+
+
+@app.websocket("/ws/voice")
+async def twilio_voice_websocket(websocket: WebSocket) -> None:
+    """Twilio bidirectional Media Stream (audio in/out)."""
+    await handle_voice_media_stream(websocket)
+
+
+# --- Messages API ---
 
 
 @app.post("/messages/send", response_model=SendSmsResponse)
@@ -516,7 +485,7 @@ def send_message(payload: SendSmsRequest) -> SendSmsResponse:
         if case_id:
             persist_event(
                 case_id=case_id,
-                description=f"Outbound SMS sent to {result.to_number}: {payload.body}",
+                description=f"Outbound SMS to {result.to_number}: {payload.body}",
                 text_message_id=message_row_id,
             )
     except Exception as e:
@@ -823,6 +792,44 @@ async def get_cases(
                 for r in results:
                     r["id"] = str(r["id"])
                 return [CaseResponse(**r) for r in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/events/live", response_model=List[LiveEventResponse])
+async def get_live_events(limit: int = Query(200, ge=1, le=500)) -> List[LiveEventResponse]:
+    """Get latest geolocated events enriched with case status/severity."""
+    try:
+        with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        e.id AS event_id,
+                        e.case_id,
+                        e.description,
+                        e.latitude,
+                        e.longitude,
+                        e.timestamp,
+                        c.severity AS case_severity,
+                        c.status AS case_status,
+                        c.category AS case_category,
+                        c.title AS case_title
+                    FROM event e
+                    JOIN "case" c ON c.id = e.case_id
+                    WHERE e.latitude IS NOT NULL AND e.longitude IS NOT NULL
+                    ORDER BY e.timestamp DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                results = cur.fetchall()
+
+                for row in results:
+                    row["event_id"] = str(row["event_id"])
+                    row["case_id"] = str(row["case_id"])
+
+                return [LiveEventResponse(**row) for row in results]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

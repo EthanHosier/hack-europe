@@ -41,10 +41,35 @@
         }
       }
     },
+    "/debug/routes": {
+      "get": {
+        "summary": "Debug Routes",
+        "description": "Registered routes (path -> methods). Remove in production if desired.",
+        "operationId": "debug_routes_debug_routes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object",
+                  "title": "Response Debug Routes Debug Routes Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/db/health": {
       "get": {
         "summary": "Db Health",
-        "description": "Check connection to the database.",
         "operationId": "db_health_db_health_get",
         "responses": {
           "200": {
@@ -64,6 +89,23 @@
       "post": {
         "summary": "Twilio Sms Webhook",
         "operationId": "twilio_sms_webhook_twilio_webhooks_sms_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/twilio/webhooks/voice": {
+      "post": {
+        "summary": "Twilio Voice Webhook",
+        "description": "Answer call with TwiML: connect to Media Stream (if VOICE_STREAM_WS_URL set) or say and hang up.",
+        "operationId": "twilio_voice_webhook_twilio_webhooks_voice_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -380,6 +422,53 @@
                     "$ref": "#/components/schemas/CaseResponse"
                   },
                   "title": "Response Get Cases Cases Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/live": {
+      "get": {
+        "summary": "Get Live Events",
+        "description": "Get latest geolocated events enriched with case status/severity.",
+        "operationId": "get_live_events_events_live_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LiveEventResponse"
+                  },
+                  "title": "Response Get Live Events Events Live Get"
                 }
               }
             }
@@ -978,6 +1067,77 @@
           "version"
         ],
         "title": "HealthResponse"
+      },
+      "LiveEventResponse": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "case_id": {
+            "type": "string",
+            "title": "Case Id"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "case_severity": {
+            "type": "integer",
+            "title": "Case Severity"
+          },
+          "case_status": {
+            "type": "string",
+            "title": "Case Status"
+          },
+          "case_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Category"
+          },
+          "case_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "case_id",
+          "description",
+          "latitude",
+          "longitude",
+          "timestamp",
+          "case_severity",
+          "case_status"
+        ],
+        "title": "LiveEventResponse"
       },
       "MessageCreate": {
         "properties": {
