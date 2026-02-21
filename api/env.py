@@ -19,3 +19,11 @@ if not SUPABASE_URL:
     raise RuntimeError("SUPABASE_URL is required; set it in .env at project root")
 if not SUPABASE_POSTGRES_URL:
     raise RuntimeError("SUPABASE_POSTGRES_URL is required; set it in .env at project root")
+if not TWILIO_ACCOUNT_SID:
+    raise RuntimeError("TWILIO_ACCOUNT_SID is required; set it in .env at project root")
+if not TWILIO_AUTH_TOKEN:
+    raise RuntimeError("TWILIO_AUTH_TOKEN is required; set it in .env at project root")
+if not TWILIO_FROM_NUMBER:
+    raise RuntimeError("TWILIO_FROM_NUMBER is required; set it in .env at project root")
+if not WORKFLOW_WEBHOOK_URL:
+    raise RuntimeError("WORKFLOW_WEBHOOK_URL is required; set it in .env at project root")
