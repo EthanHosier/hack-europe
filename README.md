@@ -40,14 +40,20 @@ TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
 TWILIO_FROM_NUMBER=...
 
-# Workflow bridge base URL (inbound SMS forwards to /sms)
-WORKFLOW_WEBHOOK_URL=https://your-workflow-domain.example/twilio/webhooks
+# Workflow bridge base URL (optional - now using AI agent directly)
+# WORKFLOW_WEBHOOK_URL=https://your-workflow-domain.example/twilio/webhooks
+
+# Google API keys for AI agent (Gemini)
+GOOGLE_API_KEY=your-google-api-key
+GOOGLE_MAPS_API_KEY=your-google-maps-api-key
 ```
 
 - **SUPABASE_URL** — Project URL (API URL).
 - **SUPABASE_POSTGRES_URL** — Direct Postgres connection string (e.g. from Supabase → Settings → Database → Connection string, “URI” / “Transaction” pooler).
 - **TWILIO_ACCOUNT_SID**, **TWILIO_AUTH_TOKEN**, **TWILIO_FROM_NUMBER** — required for SMS webhook verification and outbound delivery.
-- **WORKFLOW_WEBHOOK_URL** — workflow base URL; inbound SMS events are forwarded to `${WORKFLOW_WEBHOOK_URL}/sms`.
+- **GOOGLE_API_KEY** — Google AI (Gemini) API key for the emergency agent.
+- **GOOGLE_MAPS_API_KEY** — Google Maps API key for geocoding locations.
+- **WORKFLOW_WEBHOOK_URL** — (Optional) workflow base URL; can be left empty as SMS now integrates directly with AI agent.
 
 The API and the migration script (`npm run migrate`) both read from this file. If either variable is missing, the API will fail on startup with a clear error.
 
@@ -149,11 +155,41 @@ The script uses `SUPABASE_POSTGRES_URL` from the root `.env`, applies any new `.
   - `success`, `message_sid`, `status`, `to`, `from_number`, `workflow`
   - `persistence_error` is populated only if SMS sends but DB logging fails
 
+### SMS Integration with AI Agent
+
+The system now includes full SMS integration with the AI emergency agent:
+
+- **Incoming SMS**: Text your Twilio number → Processed by AI agent → Response sent back via SMS
+- **Conversation Context**: Maintains conversation history per phone number
+- **Emergency Detection**: Automatically creates cases when emergencies are detected
+- **Geocoding**: Extracts and geocodes location information from messages
+
+#### Setting Up SMS Integration
+
+1. **Configure Twilio Webhook**:
+   - In Twilio Console, set your phone number's webhook to: `https://your-api-url/twilio/webhooks/sms`
+   - For local testing, use ngrok: `ngrok http 8000` and use the ngrok URL
+
+2. **Test SMS Integration**:
+   ```bash
+   cd api
+   source .venv/bin/activate
+   python test_sms_integration.py
+   ```
+
+3. **How It Works**:
+   - SMS received → Stored in database → Processed by AI agent
+   - Agent maintains context from previous messages
+   - Response limited to 1600 chars (SMS limit)
+   - Cases created for emergencies with location data
+
+See `api/setup_twilio_webhook.md` for detailed setup instructions.
+
 ### AI-agent handoff contract
 
-- Inbound webhook normalizes message data and calls `handle_inbound_message(...)` in `api/workflow_bridge.py`.
-- This is intentionally a no-op contract placeholder so your AI teammate can plug in classification + broadcast logic without changing public API shape.
-- **API in Docker** (uses `.env` at project root for `SUPABASE_URL` and `SUPABASE_POSTGRES_URL`):
+- Inbound webhook processes messages directly through the EmergencyAgent (using Google Gemini)
+- SMS conversations maintain context and can create emergency cases automatically
+- **API in Docker** (uses `.env` at project root for all required environment variables):
 
   ```bash
   npm run docker:build
