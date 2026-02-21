@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import mapboxgl, { type GeoJSONSource } from "mapbox-gl";
 import type { Incident } from "./IncidentQueue";
-import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
+import { env } from "@/lib/env";
 
 interface MapViewProps {
   incidents: Incident[];
@@ -13,116 +14,380 @@ const severityColors = {
   high: "#B8741A",
   moderate: "#3B5B8C",
   low: "#4A4A5A",
-};
+} as const;
+
+const MAPBOX_ACCESS_TOKEN = env.VITE_MAPBOX_ACCESS_TOKEN;
+const INCIDENT_SOURCE_ID = "incidents";
+const STOCKHOLM_CENTER: [number, number] = [18.0686, 59.3293];
+
+function toIncidentGeoJson(
+  incidents: Incident[],
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  return {
+    type: "FeatureCollection",
+    features: incidents.map((incident) => ({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: [incident.lng, incident.lat],
+      },
+      properties: {
+        id: incident.id,
+        severity: incident.severity,
+      },
+    })),
+  };
+}
+
+function addIncidentLayers(map: mapboxgl.Map, selectedId: string | null) {
+  if (!map.getSource(INCIDENT_SOURCE_ID)) return;
+
+  map.addLayer({
+    id: "incident-clusters",
+    type: "circle",
+    source: INCIDENT_SOURCE_ID,
+    filter: ["has", "point_count"],
+    paint: {
+      "circle-color": [
+        "case",
+        [">", ["coalesce", ["get", "critical"], 0], 0],
+        severityColors.critical,
+        [">", ["coalesce", ["get", "high"], 0], 0],
+        severityColors.high,
+        [">", ["coalesce", ["get", "moderate"], 0], 0],
+        severityColors.moderate,
+        severityColors.low,
+      ],
+      "circle-radius": [
+        "step",
+        ["get", "point_count"],
+        18,
+        10,
+        22,
+        25,
+        28,
+      ],
+      "circle-opacity": 0.9,
+      "circle-stroke-width": 1.5,
+      "circle-stroke-color": "#0A0E1A",
+    },
+  });
+
+  map.addLayer({
+    id: "incident-cluster-count",
+    type: "symbol",
+    source: INCIDENT_SOURCE_ID,
+    filter: ["has", "point_count"],
+    layout: {
+      "text-field": ["get", "point_count_abbreviated"],
+      "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
+      "text-size": 12,
+    },
+    paint: {
+      "text-color": "#E8EAED",
+    },
+  });
+
+  map.addLayer({
+    id: "incident-points",
+    type: "circle",
+    source: INCIDENT_SOURCE_ID,
+    filter: ["!", ["has", "point_count"]],
+    paint: {
+      "circle-color": [
+        "match",
+        ["get", "severity"],
+        "critical",
+        severityColors.critical,
+        "high",
+        severityColors.high,
+        "moderate",
+        severityColors.moderate,
+        "low",
+        severityColors.low,
+        severityColors.low,
+      ],
+      "circle-radius": 7,
+      "circle-opacity": 0.95,
+      "circle-stroke-width": 1.5,
+      "circle-stroke-color": "#0A0E1A",
+    },
+  });
+
+  map.addLayer({
+    id: "incident-selected",
+    type: "circle",
+    source: INCIDENT_SOURCE_ID,
+    filter: [
+      "all",
+      ["!", ["has", "point_count"]],
+      ["==", ["get", "id"], selectedId ?? ""],
+    ],
+    paint: {
+      "circle-color": "transparent",
+      "circle-radius": 14,
+      "circle-stroke-color": "#5B8DBF",
+      "circle-stroke-width": 2,
+      "circle-opacity": 0.9,
+    },
+  });
+}
+
+function applyPalantirVibe(map: mapboxgl.Map) {
+  map.setFog({
+    range: [0.9, 9],
+    color: "#EAF4FF",
+    "high-color": "#CFE3F7",
+    "space-color": "#F3F9FF",
+    "horizon-blend": 0.08,
+    "star-intensity": 0,
+  });
+
+  if (!map.getSource("mapbox-dem")) {
+    map.addSource("mapbox-dem", {
+      type: "raster-dem",
+      url: "mapbox://mapbox.terrain-rgb",
+      tileSize: 512,
+      maxzoom: 14,
+    });
+  }
+  map.setTerrain({ source: "mapbox-dem", exaggeration: 1.15 });
+
+  const labelLayerId = map
+    .getStyle()
+    .layers?.find((layer) => layer.type === "symbol")?.id;
+
+  if (!map.getLayer("terrain-hillshade")) {
+    map.addLayer(
+      {
+        id: "terrain-hillshade",
+        type: "hillshade",
+        source: "mapbox-dem",
+        paint: {
+          "hillshade-shadow-color": "#2F3B4A",
+          "hillshade-highlight-color": "#F7FAFF",
+          "hillshade-accent-color": "#76859B",
+          "hillshade-exaggeration": 0.8,
+          "hillshade-illumination-anchor": "map",
+          "hillshade-illumination-direction": 315,
+        },
+      },
+      labelLayerId,
+    );
+  }
+
+  if (map.getLayer("water")) {
+    map.setPaintProperty("water", "fill-color", "#9FD3FF");
+    map.setPaintProperty("water", "fill-opacity", 0.45);
+  }
+  if (map.getLayer("water-shadow")) {
+    map.setPaintProperty("water-shadow", "fill-color", "#7CB7E8");
+  }
+  if (map.getLayer("landuse")) {
+    map.setPaintProperty("landuse", "fill-color", "#AAB4C2");
+    map.setPaintProperty("landuse", "fill-opacity", 0.25);
+  }
+
+  if (!map.getLayer("3d-buildings")) {
+    map.addLayer(
+      {
+        id: "3d-buildings",
+        source: "composite",
+        "source-layer": "building",
+        filter: ["==", "extrude", "true"],
+        type: "fill-extrusion",
+        minzoom: 13,
+        paint: {
+          "fill-extrusion-color": [
+            "interpolate",
+            ["linear"],
+            ["get", "height"],
+            0,
+            "#FFE7C2",
+            80,
+            "#D2E6FF",
+            200,
+            "#CBBEFF",
+          ],
+          "fill-extrusion-height": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            13,
+            0,
+            14,
+            ["get", "height"],
+          ],
+          "fill-extrusion-base": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            13,
+            0,
+            14,
+            ["get", "min_height"],
+          ],
+          "fill-extrusion-opacity": 0.82,
+        },
+      },
+      labelLayerId,
+    );
+  }
+}
 
 export function MapView({
   incidents,
   selectedId,
   onSelectIncident,
 }: MapViewProps) {
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const incidentGeoJson = useMemo(() => toIncidentGeoJson(incidents), [incidents]);
+  const [pitch, setPitch] = useState(60);
+  const [bearing, setBearing] = useState(-18);
 
-  const severityPriority = {
-    critical: 4,
-    high: 3,
-    moderate: 2,
-    low: 1,
-  };
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current || !MAPBOX_ACCESS_TOKEN) return;
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-  };
+    mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+    const map = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: "mapbox://styles/mapbox/dark-v11",
+      center: STOCKHOLM_CENTER,
+      zoom: 10.8,
+      pitch: 60,
+      bearing: -18,
+      antialias: true,
+      dragPan: true,
+      pitchWithRotate: true,
+    });
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging) {
-      setPan({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
+    mapRef.current = map;
+    map.addControl(new mapboxgl.NavigationControl(), "top-right");
+    map.dragRotate.enable();
+    map.keyboard.enable();
+    setPitch(Math.round(map.getPitch()));
+    setBearing(Math.round(map.getBearing()));
+    map.on("move", () => {
+      setPitch(Math.round(map.getPitch()));
+      setBearing(Math.round(map.getBearing()));
+    });
+
+    map.on("load", () => {
+      map.addSource(INCIDENT_SOURCE_ID, {
+        type: "geojson",
+        data: incidentGeoJson,
+        cluster: true,
+        clusterRadius: 50,
+        clusterMaxZoom: 14,
+        clusterProperties: {
+          critical: [
+            "+",
+            ["case", ["==", ["get", "severity"], "critical"], 1, 0],
+          ],
+          high: ["+", ["case", ["==", ["get", "severity"], "high"], 1, 0]],
+          moderate: [
+            "+",
+            ["case", ["==", ["get", "severity"], "moderate"], 1, 0],
+          ],
+          low: ["+", ["case", ["==", ["get", "severity"], "low"], 1, 0]],
+        },
       });
-    }
-  };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
+      addIncidentLayers(map, selectedId);
+      applyPalantirVibe(map);
 
-  const handleZoomIn = () => {
-    setZoom((prev) => Math.min(prev + 0.25, 2));
-  };
+      map.on("click", "incident-clusters", (event) => {
+        const feature = event.features?.[0];
+        if (!feature) return;
+        const source = map.getSource(INCIDENT_SOURCE_ID) as GeoJSONSource | undefined;
+        const clusterId = feature.properties?.cluster_id;
+        if (!source || typeof clusterId !== "number") return;
 
-  const handleZoomOut = () => {
-    setZoom((prev) => Math.max(prev - 0.25, 0.5));
-  };
+        source.getClusterExpansionZoom(clusterId, (error, zoom) => {
+          if (error || typeof zoom !== "number") return;
+          const geometry = feature.geometry as GeoJSON.Point;
+          map.easeTo({ center: geometry.coordinates as [number, number], zoom });
+        });
+      });
 
-  // Group incidents by proximity for clustering
-  const clusterRadius = 40;
-  const clusters: Array<{
-    incidents: Incident[];
-    x: number;
-    y: number;
-    severity: Incident["severity"];
-  }> = [];
-
-  incidents.forEach((incident) => {
-    // Convert lat/lng to x/y coordinates (simplified)
-    const x = ((incident.lng + 180) / 360) * 800;
-    const y = ((90 - incident.lat) / 180) * 600;
-
-    let addedToCluster = false;
-    for (const cluster of clusters) {
-      const distance = Math.sqrt(
-        Math.pow(cluster.x - x, 2) + Math.pow(cluster.y - y, 2)
-      );
-
-      if (distance < clusterRadius) {
-        cluster.incidents.push(incident);
-        // Update severity to highest in cluster
-        if (
-          severityPriority[incident.severity] >
-          severityPriority[cluster.severity]
-        ) {
-          cluster.severity = incident.severity;
+      map.on("click", "incident-points", (event) => {
+        const feature = event.features?.[0];
+        const incidentId = feature?.properties?.id;
+        if (typeof incidentId === "string") {
+          onSelectIncident(incidentId);
         }
-        addedToCluster = true;
-        break;
-      }
-    }
-
-    if (!addedToCluster) {
-      clusters.push({
-        incidents: [incident],
-        x,
-        y,
-        severity: incident.severity,
       });
+
+      map.on("mouseenter", "incident-clusters", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "incident-clusters", () => {
+        map.getCanvas().style.cursor = "";
+      });
+      map.on("mouseenter", "incident-points", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "incident-points", () => {
+        map.getCanvas().style.cursor = "";
+      });
+    });
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, [incidentGeoJson, onSelectIncident, selectedId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const source = map.getSource(INCIDENT_SOURCE_ID);
+    if (source && "setData" in source) {
+      (source as GeoJSONSource).setData(incidentGeoJson);
     }
-  });
+  }, [incidentGeoJson]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer("incident-selected")) return;
+
+    map.setFilter("incident-selected", [
+      "all",
+      ["!", ["has", "point_count"]],
+      ["==", ["get", "id"], selectedId ?? ""],
+    ]);
+  }, [selectedId]);
+
+  if (!MAPBOX_ACCESS_TOKEN) {
+    return (
+      <div className="flex-1 bg-[#0a0e1a] border-r border-[#1e2530] flex items-center justify-center p-6">
+        <div className="max-w-md bg-[#1a2332]/90 border border-[#2a3441] rounded p-4 text-sm text-[#9ca3af]">
+          <p className="text-[#e8eaed] font-medium mb-1">Map unavailable</p>
+          <p>
+            Set <code>VITE_MAPBOX_ACCESS_TOKEN</code> in the project root{" "}
+            <code>.env</code> and restart the UI dev server.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const handlePitchChange = (nextPitch: number) => {
+    const map = mapRef.current;
+    setPitch(nextPitch);
+    map?.easeTo({ pitch: nextPitch, duration: 200 });
+  };
+
+  const handleBearingChange = (nextBearing: number) => {
+    const map = mapRef.current;
+    setBearing(nextBearing);
+    map?.easeTo({ bearing: nextBearing, duration: 200 });
+  };
 
   return (
     <div className="flex-1 bg-[#0a0e1a] relative overflow-hidden">
-      {/* Map controls */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
-        <button
-          onClick={handleZoomIn}
-          className="w-8 h-8 bg-[#1a2332] border border-[#2a3441] rounded flex items-center justify-center hover:bg-[#1e2530] transition-colors"
-        >
-          <ZoomIn className="w-4 h-4 text-[#9ca3af]" />
-        </button>
-        <button
-          onClick={handleZoomOut}
-          className="w-8 h-8 bg-[#1a2332] border border-[#2a3441] rounded flex items-center justify-center hover:bg-[#1e2530] transition-colors"
-        >
-          <ZoomOut className="w-4 h-4 text-[#9ca3af]" />
-        </button>
-        <button className="w-8 h-8 bg-[#1a2332] border border-[#2a3441] rounded flex items-center justify-center hover:bg-[#1e2530] transition-colors">
-          <Maximize2 className="w-4 h-4 text-[#9ca3af]" />
-        </button>
-      </div>
-
       {/* Map location label */}
       <div className="absolute top-4 left-4 z-10 px-3 py-1.5 bg-[#1a2332]/90 border border-[#2a3441] rounded backdrop-blur-sm">
         <span className="text-[11px] text-[#9ca3af] uppercase tracking-wider">
@@ -130,236 +395,41 @@ export function MapView({
         </span>
       </div>
 
-      {/* Map container */}
-      <div
-        className="w-full h-full cursor-move"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        <svg
-          className="w-full h-full"
-          viewBox="0 0 1200 800"
-          style={{
-            transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
-            transition: isDragging ? "none" : "transform 0.2s ease-out",
-          }}
-        >
-          {/* Background grid */}
-          <defs>
-            <pattern
-              id="grid"
-              width="40"
-              height="40"
-              patternUnits="userSpaceOnUse"
-            >
-              <path
-                d="M 40 0 L 0 0 0 40"
-                fill="none"
-                stroke="#1e2530"
-                strokeWidth="0.5"
-              />
-            </pattern>
-          </defs>
-          <rect width="1200" height="800" fill="#0a0e1a" />
-          <rect width="1200" height="800" fill="url(#grid)" />
+      <div ref={mapContainerRef} className="w-full h-full" />
 
-          {/* Stylized map regions */}
-          {/* Main Stockholm area */}
-          <path
-            d="M 500,300 Q 520,280 550,290 L 580,310 Q 600,330 590,360 L 570,390 Q 550,410 520,400 L 490,380 Q 470,350 500,300 Z"
-            fill="#141825"
-            stroke="#2a3441"
-            strokeWidth="1.5"
+      <div className="absolute top-4 right-4 z-10 bg-[#1a2332]/90 border border-[#2a3441] rounded backdrop-blur-sm p-3 w-[230px]">
+        <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mb-2">
+          View Controls
+        </div>
+        <div className="space-y-2">
+          <label className="block text-[11px] text-[#9ca3af]">
+            Perspective ({pitch}°)
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={80}
+            step={1}
+            value={pitch}
+            onChange={(event) => handlePitchChange(Number(event.target.value))}
+            className="w-full accent-[#5b8dbf]"
           />
-
-          {/* Surrounding municipalities */}
-          <path
-            d="M 350,250 L 380,240 L 420,260 L 430,290 L 410,310 L 370,300 Z"
-            fill="#0f1419"
-            stroke="#2a3441"
-            strokeWidth="1"
+          <label className="block text-[11px] text-[#9ca3af]">
+            Rotation ({bearing}°)
+          </label>
+          <input
+            type="range"
+            min={-180}
+            max={180}
+            step={1}
+            value={bearing}
+            onChange={(event) => handleBearingChange(Number(event.target.value))}
+            className="w-full accent-[#5b8dbf]"
           />
-
-          <path
-            d="M 620,270 L 660,260 L 690,280 L 700,320 L 680,350 L 640,340 Z"
-            fill="#0f1419"
-            stroke="#2a3441"
-            strokeWidth="1"
-          />
-
-          <path
-            d="M 480,450 L 520,440 L 550,460 L 560,500 L 530,520 L 490,510 Z"
-            fill="#0f1419"
-            stroke="#2a3441"
-            strokeWidth="1"
-          />
-
-          <path
-            d="M 320,360 L 360,350 L 390,370 L 400,410 L 370,430 L 330,420 Z"
-            fill="#0f1419"
-            stroke="#2a3441"
-            strokeWidth="1"
-          />
-
-          {/* Roads/connections */}
-          <line
-            x1="400"
-            y1="275"
-            x2="500"
-            y2="330"
-            stroke="#2a3441"
-            strokeWidth="2"
-            strokeDasharray="5,5"
-          />
-          <line
-            x1="590"
-            y1="340"
-            x2="660"
-            y2="300"
-            stroke="#2a3441"
-            strokeWidth="2"
-            strokeDasharray="5,5"
-          />
-          <line
-            x1="520"
-            y1="400"
-            x2="520"
-            y2="460"
-            stroke="#2a3441"
-            strokeWidth="2"
-            strokeDasharray="5,5"
-          />
-
-          {/* Water bodies */}
-          <ellipse
-            cx="750"
-            cy="400"
-            rx="80"
-            ry="120"
-            fill="#0d1520"
-            stroke="#1e2530"
-            strokeWidth="1"
-          />
-
-          {/* Incident markers and clusters */}
-          {clusters.map((cluster, index) => {
-            const isMultiple = cluster.incidents.length > 1;
-
-            if (isMultiple) {
-              // Cluster marker
-              return (
-                <g key={index}>
-                  {/* Outer glow */}
-                  <circle
-                    cx={cluster.x}
-                    cy={cluster.y}
-                    r="24"
-                    fill={`${severityColors[cluster.severity]}15`}
-                    className="animate-pulse"
-                  />
-                  {/* Cluster circle */}
-                  <circle
-                    cx={cluster.x}
-                    cy={cluster.y}
-                    r="16"
-                    fill={severityColors[cluster.severity]}
-                    stroke="#0a0e1a"
-                    strokeWidth="2"
-                    className="cursor-pointer hover:opacity-80 transition-opacity"
-                  />
-                  {/* Count */}
-                  <text
-                    x={cluster.x}
-                    y={cluster.y}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    className="text-[12px] font-[600] fill-white pointer-events-none"
-                  >
-                    {cluster.incidents.length}
-                  </text>
-                </g>
-              );
-            } else {
-              // Single incident marker
-              const incident = cluster.incidents[0];
-              const isSelected = incident.id === selectedId;
-
-              return (
-                <g
-                  key={incident.id}
-                  onClick={() => onSelectIncident(incident.id)}
-                  className="cursor-pointer"
-                >
-                  {/* Selected ring */}
-                  {isSelected && (
-                    <circle
-                      cx={cluster.x}
-                      cy={cluster.y}
-                      r="14"
-                      fill="none"
-                      stroke="#5b8dbf"
-                      strokeWidth="2"
-                      className="animate-pulse"
-                    />
-                  )}
-                  {/* Outer glow */}
-                  <circle
-                    cx={cluster.x}
-                    cy={cluster.y}
-                    r="12"
-                    fill={`${severityColors[incident.severity]}20`}
-                  />
-                  {/* Pin */}
-                  <circle
-                    cx={cluster.x}
-                    cy={cluster.y}
-                    r="6"
-                    fill={severityColors[incident.severity]}
-                    stroke="#0a0e1a"
-                    strokeWidth="1.5"
-                    className="hover:opacity-80 transition-opacity"
-                  />
-                </g>
-              );
-            }
-          })}
-
-          {/* Region labels */}
-          <text
-            x="540"
-            y="350"
-            className="text-[11px] fill-[#6b7280] uppercase tracking-wider pointer-events-none"
-            textAnchor="middle"
-          >
-            STOCKHOLM
-          </text>
-          <text
-            x="390"
-            y="280"
-            className="text-[9px] fill-[#4b5563] uppercase tracking-wider pointer-events-none"
-            textAnchor="middle"
-          >
-            SOLNA
-          </text>
-          <text
-            x="665"
-            y="300"
-            className="text-[9px] fill-[#4b5563] uppercase tracking-wider pointer-events-none"
-            textAnchor="middle"
-          >
-            LIDINGÖ
-          </text>
-          <text
-            x="520"
-            y="485"
-            className="text-[9px] fill-[#4b5563] uppercase tracking-wider pointer-events-none"
-            textAnchor="middle"
-          >
-            HUDDINGE
-          </text>
-        </svg>
+          <p className="text-[10px] text-[#6b7280] leading-snug">
+            Drag to pan. Right-click + drag (or Ctrl + drag) to tilt/rotate.
+          </p>
+        </div>
       </div>
 
       {/* Map legend */}

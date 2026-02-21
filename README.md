@@ -34,6 +34,7 @@ Create a `.env` file at the **project root** (e.g. `cp .env.example .env`) and s
 # .env (at project root)
 SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_POSTGRES_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+VITE_MAPBOX_ACCESS_TOKEN=pk.eyJ...
 
 # Twilio (required for SMS webhook + outbound send API)
 TWILIO_ACCOUNT_SID=AC...
@@ -50,6 +51,7 @@ GOOGLE_MAPS_API_KEY=your-google-maps-api-key
 
 - **SUPABASE_URL** — Project URL (API URL).
 - **SUPABASE_POSTGRES_URL** — Direct Postgres connection string (e.g. from Supabase → Settings → Database → Connection string, “URI” / “Transaction” pooler).
+- **VITE_MAPBOX_ACCESS_TOKEN** — Mapbox public token for the 3D map in the UI (create one at https://account.mapbox.com/access-tokens/).
 - **TWILIO_ACCOUNT_SID**, **TWILIO_AUTH_TOKEN**, **TWILIO_FROM_NUMBER** — required for SMS webhook verification and outbound delivery.
 - **GOOGLE_API_KEY** — Google AI (Gemini) API key for the emergency agent.
 - **GOOGLE_MAPS_API_KEY** — Google Maps API key for geocoding locations.
