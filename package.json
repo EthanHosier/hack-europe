@@ -4,8 +4,8 @@
   "scripts": {
     "dev": "concurrently -n ui,api -c cyan,magenta \"npm run dev:ui\" \"npm run dev:api\"",
     "dev:ui": "npm run dev --prefix ui",
-    "dev:api": "cd api && python -m uvicorn index:app --reload --host 0.0.0.0",
-    "api:gen": "(cd api && python export_openapi.py) && npm run api:gen --prefix ui",
+    "dev:api": "cd api && python3 -m uvicorn index:app --reload --host 0.0.0.0 --port 8000",
+    "api:gen": "(cd api && python3 export_openapi.py) && npm run api:gen --prefix ui",
     "migrate": "tsx scripts/migrate.ts",
     "db:clear": "cd api && source .venv/bin/activate && python clear_database.py",
     "db:verify": "cd api && source .venv/bin/activate && python clear_database.py --verify",
