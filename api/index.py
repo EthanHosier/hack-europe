@@ -23,6 +23,7 @@ from twilio_app import (
     TwilioConfigError,
     build_connect_stream_twiml,
     build_say_hangup_twiml,
+    handle_realtime_voice_stream,
     handle_voice_media_stream,
     send_sms,
 )
@@ -443,8 +444,14 @@ async def twilio_voice_webhook(request: Request) -> Response:
 
 @app.websocket("/ws/voice")
 async def twilio_voice_websocket(websocket: WebSocket) -> None:
-    """Twilio bidirectional Media Stream (audio in/out)."""
+    """Twilio bidirectional Media Stream (audio in/out). Whisper + Gemini + ElevenLabs."""
     await handle_voice_media_stream(websocket)
+
+
+@app.websocket("/ws/voice/realtime")
+async def twilio_realtime_voice_websocket(websocket: WebSocket) -> None:
+    """Twilio Media Stream bridged to OpenAI Realtime API (low-latency speech-to-speech)."""
+    await handle_realtime_voice_stream(websocket)
 
 
 # --- Messages API ---
