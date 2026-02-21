@@ -90,6 +90,15 @@ The script uses `SUPABASE_POSTGRES_URL` from the root `.env`, applies any new `.
 - **API only**: `npm run dev:api` (or `cd api && uvicorn index:app --reload --host 0.0.0.0`)
 - **UI only**: `npm run dev:ui` (or `cd ui && npm run dev`)
 
+- **API in Docker** (uses `.env` at project root for `SUPABASE_URL` and `SUPABASE_POSTGRES_URL`):
+
+  ```bash
+  npm run docker:build
+  npm run docker:run
+  ```
+
+  Then open http://localhost:8000 (e.g. `curl http://localhost:8000/health`).
+
 ## Project layout
 
 | Path                    | Description                                                                                                                  |
