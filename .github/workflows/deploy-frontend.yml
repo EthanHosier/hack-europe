@@ -60,6 +60,9 @@ jobs:
           WORKFLOW_WEBHOOK_URL: https://placeholder/twilio/webhooks/sms
           GOOGLE_API_KEY: placeholder
           GOOGLE_MAPS_API_KEY: placeholder
+          OPENAI_API_KEY: placeholder
+          ELEVEN_LABS_API_KEY: placeholder
+          VOICE_STREAM_WS_URL: placeholder
         run: |
           cd api && python export_openapi.py && cd ..
 
