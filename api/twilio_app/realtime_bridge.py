@@ -185,7 +185,7 @@ async def run_realtime_bridge(
                                     "type": "server_vad",
                                     "threshold": 0.8,
                                     "prefix_padding_ms": 500,
-                                    "silence_duration_ms": 800,
+                                    "silence_duration_ms": 1200,
                                     "create_response": True,
                                     "interrupt_response": False,
                                 },
