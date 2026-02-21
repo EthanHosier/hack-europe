@@ -267,7 +267,10 @@ resource "aws_ecs_task_definition" "main" {
 
       environment = concat(var.container_environment, [
         { name = "SUPABASE_POSTGRES_URL", value = var.supabase_postgres_url },
-        { name = "SUPABASE_URL", value = var.supabase_url }
+        { name = "SUPABASE_URL", value = var.supabase_url },
+        { name = "TWILIO_ACCOUNT_SID", value = var.twilio_account_sid },
+        { name = "TWILIO_AUTH_TOKEN", value = var.twilio_auth_token },
+        { name = "TWILIO_FROM_NUMBER", value = var.twilio_from_number }
       ])
 
       logConfiguration = {
