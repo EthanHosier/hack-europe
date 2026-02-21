@@ -14,6 +14,7 @@ env:
   ECR_REPOSITORY: hack-europe
   ECS_CLUSTER: hack-europe-cluster
   ECS_SERVICE: hack-europe-service
+  ECS_ALB_NAME: hack-europe-alb
 
 jobs:
   deploy:
@@ -52,3 +53,57 @@ jobs:
             --service $ECS_SERVICE \
             --force-new-deployment \
             --region $AWS_REGION
+
+      - name: Wait for deployment to complete
+        run: |
+          echo "Waiting for ECS service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --region $AWS_REGION
+
+      - name: Get ALB DNS name
+        id: get-alb-dns
+        run: |
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names $ECS_ALB_NAME \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text \
+            --region $AWS_REGION)
+          echo "alb-dns=$ALB_DNS" >> $GITHUB_OUTPUT
+          echo "ALB DNS: $ALB_DNS"
+
+      - name: Health check
+        run: |
+          ALB_DNS="${{ steps.get-alb-dns.outputs.alb-dns }}"
+          echo "Performing health check on: http://$ALB_DNS/health"
+
+          # Wait for ALB to be ready
+          sleep 30
+
+          # Perform health check with retries
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf "http://$ALB_DNS/health"; then
+              echo "✅ Health check passed!"
+              exit 0
+            else
+              echo "❌ Health check failed (attempt $i/10)"
+              sleep 10
+            fi
+          done
+
+          echo "❌ Health check failed after 10 attempts"
+          exit 1
+
+      - name: Deployment success notification
+        if: success()
+        run: |
+          echo "🎉 Deployment successful!"
+          echo "Application is available at: http://${{ steps.get-alb-dns.outputs.alb-dns }}"
+          echo "Health check: http://${{ steps.get-alb-dns.outputs.alb-dns }}/health"
+
+      - name: Deployment failure notification
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Check the logs above for details."
