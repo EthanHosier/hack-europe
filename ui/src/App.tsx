@@ -4,7 +4,6 @@ import { IncidentQueue } from "@/components/ui/IncidentQueue";
 import type { Incident } from "@/components/ui/IncidentQueue";
 import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
-import { SimpleChat } from "@/components/SimpleChat";
 
 // Mock incident data
 const mockIncidents: Incident[] = [
@@ -244,7 +243,6 @@ export default function App() {
           onDispatch={handleDispatch}
         />
       </div>
-      <SimpleChat />
     </div>
   );
 }
