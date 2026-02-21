@@ -83,7 +83,11 @@ export function IncidentQueue({
               onClick={() => onSelectIncident(incident.id)}
               className={`
                 px-4 py-3 border-b border-[#1e2530] cursor-pointer transition-colors
-                ${isSelected ? "bg-[#1a2332] border-l-2 border-l-[#5b8dbf]" : "hover:bg-[#141825]"}
+                ${
+                  isSelected
+                    ? "bg-[#1a2332] border-l-2 border-l-[#5b8dbf]"
+                    : "hover:bg-[#141825]"
+                }
               `}
             >
               <div className="flex items-start gap-3">
@@ -116,7 +120,9 @@ export function IncidentQueue({
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-[500]"
                       style={{
-                        backgroundColor: `${severityColors[incident.severity]}20`,
+                        backgroundColor: `${
+                          severityColors[incident.severity]
+                        }20`,
                         color: severityColors[incident.severity],
                       }}
                     >
