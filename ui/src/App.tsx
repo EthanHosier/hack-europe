@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
 import { IncidentQueue } from "@/components/ui/IncidentQueue";
 import type { Incident } from "@/components/ui/IncidentQueue";
@@ -205,10 +205,10 @@ export default function App() {
   );
 
   const handleDispatch = (responderId: string, incidentId: string) => {
+    // TODO: trigger API call to dispatch responder to incident - update state in BE
     console.log(
       `Dispatching responder ${responderId} to incident ${incidentId}`,
     );
-    // In a real app, this would trigger API calls and update state
   };
 
   const selectedIncident =

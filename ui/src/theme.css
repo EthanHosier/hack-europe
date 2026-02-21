@@ -179,3 +179,25 @@
     line-height: 1.5;
   }
 }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3441 #0f1419;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f1419;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #2a3441;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #3a4451;
+}
