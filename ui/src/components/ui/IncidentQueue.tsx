@@ -1,3 +1,4 @@
+import { forwardRef, useImperativeHandle, useRef } from "react";
 import { AlertTriangle, Flame, Heart, Home, Zap, Clock } from "lucide-react";
 
 export interface Incident {
@@ -16,6 +17,10 @@ interface IncidentQueueProps {
   incidents: Incident[];
   selectedId: string | null;
   onSelectIncident: (id: string) => void;
+}
+
+export interface IncidentQueueHandle {
+  scrollTo: (id: string) => void;
 }
 
 const severityColors = {
@@ -46,11 +51,20 @@ const typeIcons = {
   emergency: Zap,
 };
 
-export function IncidentQueue({
+export const IncidentQueue = forwardRef<IncidentQueueHandle, IncidentQueueProps>(
+function IncidentQueue({
   incidents,
   selectedId,
   onSelectIncident,
-}: IncidentQueueProps) {
+}, ref) {
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useImperativeHandle(ref, () => ({
+    scrollTo(id: string) {
+      itemRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    },
+  }));
+
   const getTimeSince = (timestamp: Date) => {
     const now = new Date();
     const diff = now.getTime() - timestamp.getTime();
@@ -80,6 +94,7 @@ export function IncidentQueue({
           return (
             <div
               key={incident.id}
+              ref={(el) => { itemRefs.current[incident.id] = el; }}
               onClick={() => onSelectIncident(incident.id)}
               className={`
                 px-4 py-3 border-b border-[#1e2530] cursor-pointer transition-colors
@@ -146,4 +161,4 @@ export function IncidentQueue({
       </div>
     </div>
   );
-}
+});

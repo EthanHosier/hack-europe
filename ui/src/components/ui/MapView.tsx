@@ -575,6 +575,9 @@ export function MapView({
       setBearing(Math.round(map.getBearing()));
     });
 
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(mapContainerRef.current!);
+
     map.on("load", () => {
       const initialGeoJson = toIncidentGeoJson(incidentsRef.current);
 
@@ -694,6 +697,7 @@ export function MapView({
     });
 
     return () => {
+      resizeObserver.disconnect();
       // Clean up all markers
       for (const m of Object.values(markersRef.current)) m.remove();
       markersRef.current = {};
@@ -802,7 +806,7 @@ export function MapView({
 
       <div ref={mapContainerRef} className="w-full h-full" />
 
-      <div className="absolute top-4 right-4 z-10 bg-[#1a2332]/90 border border-[#2a3441] rounded backdrop-blur-sm p-3 w-[230px]">
+      <div className="absolute top-4 right-12 z-10 bg-[#1a2332]/90 border border-[#2a3441] rounded backdrop-blur-sm p-3 w-[230px]">
         <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mb-2">
           View Controls
         </div>

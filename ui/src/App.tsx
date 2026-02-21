@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
 import { IncidentQueue } from "@/components/ui/IncidentQueue";
-import type { Incident } from "@/components/ui/IncidentQueue";
+import type { Incident, IncidentQueueHandle } from "@/components/ui/IncidentQueue";
 import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { generateTestIncidents } from "./test/generatePoints";
@@ -206,6 +206,12 @@ export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
     mockIncidents[0].id,
   );
+  const queueRef = useRef<IncidentQueueHandle>(null);
+
+  const handleMapSelect = (id: string) => {
+    setSelectedIncidentId(id);
+    queueRef.current?.scrollTo(id);
+  };
 
   const handleDispatch = (responderId: string, incidentId: string) => {
     // TODO: trigger API call to dispatch responder to incident - update state in BE
@@ -229,6 +235,7 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden">
         <IncidentQueue
+          ref={queueRef}
           incidents={mockIncidents}
           selectedId={selectedIncidentId}
           onSelectIncident={setSelectedIncidentId}
@@ -237,7 +244,7 @@ export default function App() {
         <MapView
           incidents={mockIncidents}
           selectedId={selectedIncidentId}
-          onSelectIncident={setSelectedIncidentId}
+          onSelectIncident={handleMapSelect}
         />
 
         <IntelligencePanel
