@@ -326,10 +326,10 @@ resource "aws_cloudfront_distribution" "main" {
     }
   }
 
-  enabled            = true
-  is_ipv6_enabled    = true
-  comment            = "${var.project_name} CloudFront distribution"
-  default_root_object = "index.html"
+  enabled         = true
+  is_ipv6_enabled = true
+  comment         = "${var.project_name} CloudFront distribution"
+  # No default_root_object: forward "/" to the API as "/" (API serves JSON at root)
 
   # If you later add a custom domain:
   # aliases = var.domain_name != "" ? [var.domain_name] : []
