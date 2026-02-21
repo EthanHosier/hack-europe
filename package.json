@@ -9,6 +9,8 @@
     "migrate": "tsx scripts/migrate.ts",
     "db:clear": "cd api && source .venv/bin/activate && python clear_database.py",
     "db:verify": "cd api && source .venv/bin/activate && python clear_database.py --verify",
+    "setup:epipen": "cd api && source .venv/bin/activate && python setup_epipen_scenario.py",
+    "setup:responders": "cd api && source .venv/bin/activate && python seed_responders.py",
     "docker:build": "docker build -f api/Dockerfile -t hack-europe-api api",
     "docker:run": "docker run --rm -p 8000:8000 --env-file .env hack-europe-api",
     "deploy:ecr": "docker build --platform linux/amd64 -f api/Dockerfile -t 296410404869.dkr.ecr.us-west-2.amazonaws.com/hack-europe:latest api"

@@ -291,7 +291,9 @@ def debug_routes() -> dict[str, list[str]]:
             continue
         methods = getattr(r, "methods", None)
         if methods is not None:
-            routes[path] = sorted(methods) if isinstance(methods, set) else list(methods)
+            routes[path] = (
+                sorted(methods) if isinstance(methods, set) else list(methods)
+            )
         else:
             routes[path] = ["WS"]
     return routes
@@ -331,7 +333,10 @@ async def twilio_sms_webhook(request: Request) -> Response:
         message_sid = payload.get("MessageSid")
 
         if not from_number or not to_number or not body:
-            webhook_logger.warning("twilio_sms_inbound_missing_fields payload=%s", json.dumps(payload, ensure_ascii=False))
+            webhook_logger.warning(
+                "twilio_sms_inbound_missing_fields payload=%s",
+                json.dumps(payload, ensure_ascii=False),
+            )
             raise HTTPException(status_code=400, detail="Missing Twilio message fields")
 
         message_row_id = persist_text_message(
@@ -368,9 +373,13 @@ async def twilio_sms_webhook(request: Request) -> Response:
                     messages = cur.fetchall()
                     for msg in reversed(messages):
                         if msg["direction"] == "Inbound":
-                            conversation_history.append({"role": "user", "content": msg["raw_text"]})
+                            conversation_history.append(
+                                {"role": "user", "content": msg["raw_text"]}
+                            )
                         else:
-                            conversation_history.append({"role": "assistant", "content": msg["raw_text"]})
+                            conversation_history.append(
+                                {"role": "assistant", "content": msg["raw_text"]}
+                            )
         except Exception as e:
             webhook_logger.error("Failed to get conversation history: %s", e)
 
@@ -407,6 +416,274 @@ async def twilio_sms_webhook(request: Request) -> Response:
             )
         except Exception as e:
             webhook_logger.error("Failed to send SMS response: %s", e)
+        # Check if this is a responder confirming availability
+        is_responder_confirmation = False
+        response_text = None
+        case_id = None
+        info = None
+
+        # Check if sender is a responder and message is a confirmation or status update
+        body_upper = body.upper().strip()
+        if body_upper in [
+            "YES",
+            "OK",
+            "ON MY WAY",
+            "COMING",
+            "RESPONDING",
+            "ARRIVED",
+            "AT SCENE",
+            "HERE",
+        ]:
+            try:
+                with psycopg.connect(
+                    SUPABASE_POSTGRES_URL, row_factory=dict_row
+                ) as conn:
+                    with conn.cursor() as cur:
+                        # Check if this phone number belongs to an active responder
+                        cur.execute(
+                            """
+                            SELECT u.id::text as id, u.name, u.role,
+                                   array_agg(s.name) as specialties
+                            FROM "user" u
+                            LEFT JOIN user_specialty us ON u.id = us.user_id
+                            LEFT JOIN specialty s ON us.specialty_id = s.id
+                            WHERE u.phone = %s
+                            AND u.role = 'Responder'
+                            AND u.status = 'Active'
+                            GROUP BY u.id::text, u.name, u.role
+                            """,
+                            (from_number,),
+                        )
+                        responder = cur.fetchone()
+
+                        if responder:
+                            # Debug logging
+                            webhook_logger.info(f"Responder found: {responder}")
+                            webhook_logger.info(
+                                f"Responder keys: {responder.keys() if responder else 'None'}"
+                            )
+                            webhook_logger.info(
+                                f"Responder id type: {type(responder.get('id'))}"
+                            )
+
+                            # This is a responder confirming or updating status
+                            is_responder_confirmation = True
+
+                            # Check if this is an arrival notification
+                            is_arrival = body_upper in ["ARRIVED", "AT SCENE", "HERE"]
+
+                            # Get responder_id as string
+                            responder_id = (
+                                str(responder["id"]) if responder.get("id") else None
+                            )
+                            webhook_logger.info(f"Using responder_id: {responder_id}")
+
+                            # Find the case they were assigned to
+                            if is_arrival:
+                                # Look for confirmed assignment
+                                cur.execute(
+                                    """
+                                    SELECT c.id, c.title, c.summary, ra.distance_km
+                                    FROM responder_assignment ra
+                                    JOIN "case" c ON ra.case_id = c.id
+                                    WHERE ra.responder_id = %s
+                                    AND ra.status = 'confirmed'
+                                    AND c.status = 'Open'
+                                    ORDER BY ra.confirmed_at DESC
+                                    LIMIT 1
+                                    """,
+                                    (responder_id,),
+                                )
+                            else:
+                                # Look for notified assignment
+                                cur.execute(
+                                    """
+                                    SELECT c.id, c.title, c.summary, ra.distance_km
+                                    FROM responder_assignment ra
+                                    JOIN "case" c ON ra.case_id = c.id
+                                    WHERE ra.responder_id = %s
+                                    AND ra.status = 'notified'
+                                    AND c.status = 'Open'
+                                    ORDER BY ra.notified_at DESC
+                                    LIMIT 1
+                                    """,
+                                    (responder_id,),
+                                )
+                            recent_case = cur.fetchone()
+
+                            if recent_case:
+                                case_id = recent_case["id"]
+
+                                if is_arrival:
+                                    # Handle arrival notification
+                                    cur.execute(
+                                        """
+                                        UPDATE responder_assignment
+                                        SET status = 'arrived', arrived_at = %s
+                                        WHERE case_id = %s AND responder_id = %s
+                                        """,
+                                        (datetime.now(), case_id, responder_id),
+                                    )
+
+                                    # Log the arrival event
+                                    event_id = str(uuid.uuid4())
+                                    cur.execute(
+                                        """
+                                        INSERT INTO event (id, case_id, timestamp, description)
+                                        VALUES (%s, %s, %s, %s)
+                                        """,
+                                        (
+                                            event_id,
+                                            case_id,
+                                            datetime.now(),
+                                            f"🚨 Responder {responder['name']} has ARRIVED at the emergency scene!",
+                                        ),
+                                    )
+                                    conn.commit()
+
+                                    # Send arrival confirmation
+                                    response_text = f"✅ Arrival confirmed, {responder['name']}!\n\n"
+                                    response_text += (
+                                        "You are now marked as ON SCENE.\n\n"
+                                    )
+                                    response_text += "⚕️ Please provide emergency assistance as needed.\n"
+                                    response_text += (
+                                        "📱 Keep this line open for updates.\n\n"
+                                    )
+                                    response_text += (
+                                        "Thank you for your rapid response!"
+                                    )
+                                else:
+                                    # Handle initial confirmation
+                                    cur.execute(
+                                        """
+                                        UPDATE responder_assignment
+                                        SET status = 'confirmed', confirmed_at = %s
+                                        WHERE case_id = %s AND responder_id = %s
+                                        """,
+                                        (datetime.now(), case_id, responder_id),
+                                    )
+
+                                    # Log the confirmation event
+                                    event_id = str(uuid.uuid4())
+                                    cur.execute(
+                                        """
+                                        INSERT INTO event (id, case_id, timestamp, description)
+                                        VALUES (%s, %s, %s, %s)
+                                        """,
+                                        (
+                                            event_id,
+                                            case_id,
+                                            datetime.now(),
+                                            f"Responder {responder['name']} confirmed availability and is en route (distance: {recent_case.get('distance_km', 'unknown')}km)",
+                                        ),
+                                    )
+                                    conn.commit()
+
+                                    # Send confirmation to responder
+                                    specialties_str = (
+                                        ", ".join(responder.get("specialties", []))
+                                        if responder.get("specialties")
+                                        else "Responder"
+                                    )
+                                    response_text = (
+                                        f"✅ Thank you {responder['name']}!\n\n"
+                                    )
+                                    response_text += (
+                                        f"Your response has been confirmed.\n\n"
+                                    )
+                                    response_text += (
+                                        f"📋 Case: {recent_case['title']}\n"
+                                    )
+                                    response_text += f"📝 Details: {recent_case['summary'][:100]}...\n"
+                                    if recent_case.get("distance_km"):
+                                        response_text += f"📍 Distance: {recent_case['distance_km']:.1f}km\n"
+                                    response_text += (
+                                        "\n⚡ Please proceed to the location safely.\n"
+                                    )
+                                    response_text += "The victim has been notified that help is on the way.\n\n"
+                                    response_text += (
+                                        "Reply 'ARRIVED' when you reach the scene."
+                                    )
+
+                                webhook_logger.info(
+                                    f"Responder {responder['name']} ({specialties_str}) confirmed for case {case_id[:8]}"
+                                )
+                            else:
+                                response_text = "Thank you for responding! However, we couldn't find an active emergency case. The situation may have been resolved."
+                        else:
+                            # Not a registered responder, treat as normal message
+                            is_responder_confirmation = False
+            except Exception as e:
+                import traceback
+
+                webhook_logger.error(f"Error checking responder status: {e}")
+                webhook_logger.error(f"Full traceback: {traceback.format_exc()}")
+                is_responder_confirmation = False
+
+        # If not a responder confirmation, process as normal emergency message
+        if not is_responder_confirmation:
+            # Get conversation history for this phone number
+            conversation_history = []
+            try:
+                with psycopg.connect(
+                    SUPABASE_POSTGRES_URL, row_factory=dict_row
+                ) as conn:
+                    with conn.cursor() as cur:
+                        # Get recent messages from this phone number (limit to last 10 for context)
+                        cur.execute(
+                            """
+                            SELECT raw_text, direction, created_at
+                            FROM text_message
+                            WHERE target = %s
+                            AND created_at < (SELECT created_at FROM text_message WHERE id = %s)
+                            ORDER BY created_at DESC
+                            LIMIT 10
+                            """,
+                            (from_number, message_row_id),
+                        )
+                        messages = cur.fetchall()
+
+                        # Build conversation history in chronological order
+                        for msg in reversed(
+                            messages
+                        ):  # Reverse to get chronological order
+                            if msg["direction"] == "Inbound":
+                                conversation_history.append(
+                                    {"role": "user", "content": msg["raw_text"]}
+                                )
+                            else:
+                                conversation_history.append(
+                                    {"role": "assistant", "content": msg["raw_text"]}
+                                )
+            except Exception as e:
+                webhook_logger.error(f"Failed to get conversation history: {e}")
+
+            # Process message through the AI agent
+            try:
+                agent = EmergencyAgent(SUPABASE_POSTGRES_URL)
+
+                # Generate a UUID for user_id, but use phone number for tracking
+                user_id = str(uuid.uuid4())
+                # Store the phone number in the metadata or use it for lookup later
+
+                # Process the message
+                response_text, case_id, info = agent.process_message(
+                    body, conversation_history, user_id, SUPABASE_POSTGRES_URL
+                )
+            except Exception as e:
+                webhook_logger.error(f"AI agent processing failed: {e}")
+                # Send a fallback message
+                response_text = "Emergency system received your message. If urgent, please call 112."
+                case_id = None
+                info = None
+
+        # Limit SMS response to 1600 characters (SMS limit)
+        if response_text and len(response_text) > 1600:
+            response_text = response_text[:1597] + "..."
+
+        # Send SMS response
+        if response_text:
             try:
                 persist_text_message(
                     target=from_number,
@@ -418,6 +695,55 @@ async def twilio_sms_webhook(request: Request) -> Response:
             except Exception:
                 pass
 
+                webhook_logger.info(
+                    "twilio_sms_response_sent message_sid=%s to_number=%s response_length=%s",
+                    sms_result.message_sid,
+                    from_number,
+                    len(response_text),
+                )
+            except Exception as e:
+                webhook_logger.error(f"Failed to send SMS response: {e}")
+                # Still persist the response even if SMS sending fails
+                try:
+                    persist_text_message(
+                        target=from_number,
+                        raw_text=response_text,
+                        direction="Outbound",
+                        provider_message_sid=None,
+                        delivery_status="failed",
+                    )
+                    webhook_logger.info(
+                        f"Response saved despite SMS failure: {response_text[:100]}..."
+                    )
+                except:
+                    pass
+
+        # Log case creation if applicable (only for new emergencies, not responder confirmations)
+        if case_id and not is_responder_confirmation:
+            persist_event(
+                case_id=case_id,
+                description=f"SMS Emergency: {body[:200]}",
+                text_message_id=message_row_id,
+            )
+            webhook_logger.info(
+                "twilio_sms_case_created case_id=%s from_number=%s",
+                case_id,
+                from_number,
+            )
+
+            # Check if responders were notified
+            if (
+                info
+                and info.latitude
+                and info.longitude
+                and info.severity
+                and info.severity >= 3
+            ):
+                webhook_logger.info(
+                    "High-severity emergency (level %s) with coordinates, responders may have been notified",
+                    info.severity,
+                )
+
         # Log case creation if applicable
         if case_id:
             persist_event(
@@ -425,7 +751,11 @@ async def twilio_sms_webhook(request: Request) -> Response:
                 description=f"SMS Emergency: {body[:200]}",
                 text_message_id=message_row_id,
             )
-            webhook_logger.info("twilio_sms_case_created case_id=%s from_number=%s", case_id, from_number)
+            webhook_logger.info(
+                "twilio_sms_case_created case_id=%s from_number=%s",
+                case_id,
+                from_number,
+            )
 
         webhook_logger.info("twilio_sms_inbound_processed message_sid=%s", message_sid)
         return Response(
@@ -436,7 +766,10 @@ async def twilio_sms_webhook(request: Request) -> Response:
     except HTTPException:
         raise
     except Exception:
-        webhook_logger.exception("twilio_sms_inbound_failed payload=%s", json.dumps(payload, ensure_ascii=False))
+        webhook_logger.exception(
+            "twilio_sms_inbound_failed payload=%s",
+            json.dumps(payload, ensure_ascii=False),
+        )
         raise
 
 
@@ -454,7 +787,12 @@ async def twilio_voice_webhook(request: Request) -> Response:
         from_number = payload.get("From", "").strip()
         to_number = payload.get("To", "").strip()
 
-        webhook_logger.info("twilio_voice_inbound call_sid=%s from=%s to=%s", call_sid, from_number, to_number)
+        webhook_logger.info(
+            "twilio_voice_inbound call_sid=%s from=%s to=%s",
+            call_sid,
+            from_number,
+            to_number,
+        )
 
         if VOICE_STREAM_WS_URL:
             twiml = build_connect_stream_twiml(
@@ -463,14 +801,25 @@ async def twilio_voice_webhook(request: Request) -> Response:
                 from_number=from_number,
                 to_number=to_number,
             )
-            webhook_logger.info("twilio_voice_connect_stream call_sid=%s ws_url=%s", call_sid, VOICE_STREAM_WS_URL)
+            webhook_logger.info(
+                "twilio_voice_connect_stream call_sid=%s ws_url=%s",
+                call_sid,
+                VOICE_STREAM_WS_URL,
+            )
         else:
-            twiml = build_say_hangup_twiml("The voice service is not configured. Goodbye.")
-            webhook_logger.warning("twilio_voice_no_ws_url call_sid=%s returning say_hangup", call_sid)
+            twiml = build_say_hangup_twiml(
+                "The voice service is not configured. Goodbye."
+            )
+            webhook_logger.warning(
+                "twilio_voice_no_ws_url call_sid=%s returning say_hangup", call_sid
+            )
 
         return Response(content=twiml, media_type="application/xml", status_code=200)
     except Exception:
-        webhook_logger.exception("twilio_voice_webhook_failed payload=%s", json.dumps(payload, ensure_ascii=False))
+        webhook_logger.exception(
+            "twilio_voice_webhook_failed payload=%s",
+            json.dumps(payload, ensure_ascii=False),
+        )
         raise
 
 
@@ -920,7 +1269,9 @@ async def get_cases(
 
 
 @app.get("/events/live", response_model=List[LiveEventResponse])
-async def get_live_events(limit: int = Query(200, ge=1, le=500)) -> List[LiveEventResponse]:
+async def get_live_events(
+    limit: int = Query(200, ge=1, le=500)
+) -> List[LiveEventResponse]:
     """Get latest geolocated events enriched with case status/severity."""
     try:
         with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:

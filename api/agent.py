@@ -36,7 +36,7 @@ class EmergencyAgent:
     def __init__(self, supabase_url: str):
         self.supabase_url = supabase_url
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-3.1-pro-preview",
+            model="gemini-3-flash-preview",
             temperature=0.7,
             # max_tokens=None,
             timeout=None,
@@ -56,22 +56,26 @@ Be compassionate but efficient. Ask for remaining information if not provided. O
 
 When categorizing emergencies, use these categories:
 - fuel: Out of fuel, gas, vehicle fuel issues
-- medical: Injuries, illness, medical emergencies
+- medical: Injuries, illness, medical emergencies, allergic reactions, anaphylaxis
 - shelter: Need for shelter, stuck in dangerous weather
 - food_water: Need for food or water
 - rescue: Trapped, lost, need extraction
 - other: Anything else
 
 Rate severity from 1-5:
-- 5: Life-threatening, immediate danger
-- 4: Urgent, serious risk
+- 5: Life-threatening, immediate danger (anaphylaxis, heart attack, severe bleeding)
+- 4: Urgent, serious risk (severe allergic reaction, difficulty breathing)
 - 3: Moderate urgency
 - 2: Low urgency
 - 1: Minor issue
 
+IMPORTANT: For any allergic reaction or mention of EpiPen, categorize as "medical" with severity 4-5
+
 Remember: Be professional, calm, and reassuring. People are in distress."""
 
-    def geocode_location(self, location_text: str) -> Tuple[Optional[float], Optional[float]]:
+    def geocode_location(
+        self, location_text: str
+    ) -> Tuple[Optional[float], Optional[float]]:
         """Geocode a location description to get latitude and longitude"""
         if not location_text:
             return None, None
@@ -79,7 +83,9 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
         try:
             location = self.geocoder.geocode(location_text)
             if location:
-                print(f"Geocoded '{location_text}' to: {location.latitude}, {location.longitude}")
+                print(
+                    f"Geocoded '{location_text}' to: {location.latitude}, {location.longitude}"
+                )
                 return location.latitude, location.longitude
         except (GeocoderTimedOut, GeocoderServiceError) as e:
             print(f"Geocoding error for '{location_text}': {e}")
@@ -96,8 +102,8 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
         - Social security number
         - Location
         - Emergency description
-        - Category (fuel/medical/shelter/food_water/rescue/other)
-        - Severity (1-5)
+        - Category (fuel/medical/shelter/food_water/rescue/other) - use "medical" for any allergic reactions
+        - Severity (1-5) - use 4-5 for allergic reactions requiring EpiPen
 
         Conversation:
         {json.dumps(messages, indent=2)}
@@ -174,8 +180,16 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
                     """,
-                    (user_id, info.full_name or "Unknown", info.social_security_number or "Unknown",
-                     "Victim", "Active", info.location, info.latitude, info.longitude)
+                    (
+                        user_id,
+                        info.full_name or "Unknown",
+                        info.social_security_number or "Unknown",
+                        "Victim",
+                        "Active",
+                        info.location,
+                        info.latitude,
+                        info.longitude,
+                    ),
                 )
 
             # Determine category and severity
@@ -204,15 +218,26 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
 
             # Create initial event
             event_id = str(uuid.uuid4())
-            coords_text = f"\nCoordinates: {info.latitude:.6f}, {info.longitude:.6f}" if info.latitude and info.longitude else ""
-            event_description = f"{info.emergency_description} {info.location or ''}"
+            coords_text = (
+                f"\nCoordinates: {info.latitude:.6f}, {info.longitude:.6f}"
+                if info.latitude and info.longitude
+                else ""
+            )
+            event_description = f"Emergency case created\nName: {info.full_name}\nSSN: {info.social_security_number}\nLocation: {info.location}{coords_text}\nEmergency: {info.emergency_description}"
 
             cur.execute(
                 """
                 INSERT INTO event (id, case_id, timestamp, description, latitude, longitude)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (event_id, case_id, now, event_description, info.latitude, info.longitude),
+                (
+                    event_id,
+                    case_id,
+                    now,
+                    event_description,
+                    info.latitude,
+                    info.longitude,
+                ),
             )
 
             # Store initial message with coordinates
@@ -222,7 +247,16 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
                 INSERT INTO text_message (id, source, target, raw_text, user_id, latitude, longitude, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (message_id, "SMS", "emergency", event_description, user_id, info.latitude, info.longitude, now),
+                (
+                    message_id,
+                    "SMS",
+                    "emergency",
+                    event_description,
+                    user_id,
+                    info.latitude,
+                    info.longitude,
+                    now,
+                ),
             )
 
             conn.commit()
@@ -266,6 +300,7 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
 
         # Check if we should create a case
         case_id = None
+        responder_notification = None
         if self.should_create_case(info):
             try:
                 with psycopg.connect(db_url, row_factory=dict_row) as conn:
@@ -280,7 +315,44 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
                     )
                     if info.latitude and info.longitude:
                         response_text += f"📍 Location coordinates: {info.latitude:.6f}, {info.longitude:.6f}\n"
-                    response_text += "Help is being coordinated. Stay calm and safe."
+
+                    # Alert nearby responders for high-severity emergencies
+                    if (
+                        info.severity
+                        and info.severity >= 3
+                        and info.latitude
+                        and info.longitude
+                    ):
+                        try:
+                            from responder_notifier import alert_nearby_help
+
+                            # Convert EmergencyInfo to dict for the notifier
+                            emergency_dict = {
+                                "emergency_description": info.emergency_description,
+                                "location": info.location,
+                                "latitude": info.latitude,
+                                "longitude": info.longitude,
+                                "category": info.category,
+                                "severity": info.severity,
+                            }
+
+                            # Alert responders within 5km radius
+                            notification_result = alert_nearby_help(
+                                db_url,
+                                emergency_dict,
+                                case_id,
+                                radius_km=5.0,
+                                max_responders=3,
+                            )
+
+                            if notification_result["notifications_sent"] > 0:
+                                response_text += f"\n🚨 {notification_result['notifications_sent']} nearby responders have been alerted!"
+                                responder_notification = notification_result
+                        except Exception as e:
+                            print(f"Error alerting responders: {e}")
+                            # Don't fail the whole process if responder notification fails
+
+                    response_text += "\nHelp is being coordinated. Stay calm and safe."
             except Exception as e:
                 print(f"Error creating case: {e}")
                 response_text += "\n\n⚠️ There was an issue creating your emergency case. Please try again."
