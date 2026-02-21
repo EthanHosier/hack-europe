@@ -27,10 +27,12 @@ Create a `.env` file at the **project root** (e.g. `cp .env.example .env`) and s
 # .env (at project root)
 SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_POSTGRES_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+VITE_MAPBOX_ACCESS_TOKEN=pk.eyJ...
 ```
 
 - **SUPABASE_URL** — Project URL (API URL).
 - **SUPABASE_POSTGRES_URL** — Direct Postgres connection string (e.g. from Supabase → Settings → Database → Connection string, “URI” / “Transaction” pooler).
+- **VITE_MAPBOX_ACCESS_TOKEN** — Mapbox public token for the 3D map in the UI (create one at https://account.mapbox.com/access-tokens/).
 
 The API and the migration script (`npm run migrate`) both read from this file. If either variable is missing, the API will fail on startup with a clear error.
 
