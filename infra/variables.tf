@@ -77,16 +77,14 @@ variable "container_environment" {
 }
 
 variable "supabase_postgres_url" {
-  description = "Supabase Postgres connection URL (set in variables.tfvars)"
+  description = "Supabase Postgres connection URL (set in terraform.auto.tfvars)"
   type        = string
   sensitive   = true
-  default     = ""
 }
 
 variable "supabase_url" {
-  description = "Supabase project URL (set in variables.tfvars)"
+  description = "Supabase project URL (set in terraform.auto.tfvars)"
   type        = string
   sensitive   = true
-  default     = ""
 }
  
