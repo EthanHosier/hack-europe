@@ -6,6 +6,11 @@ import path from "path";
 // https://vite.dev/config/
 export default defineConfig({
   server: {
+    watch: {
+      usePolling: true,  // fixes WSL file watching
+      interval: 100,
+    },
+    host: true,
     proxy: {
       "/api": {
         target: "http://localhost:8000",
