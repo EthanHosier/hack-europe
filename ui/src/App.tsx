@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { TopBar } from "@/components/TopBar";
-import { IncidentQueue, Incident } from "@/components/IncidentQueue";
-import { MapView } from "@/components/MapView";
-import { IntelligencePanel } from "@/components/IntelligencePanel";
+import { TopBar } from "@/components/ui/TopBar";
+import { IncidentQueue, Incident } from "@/components/ui/IncidentQueue";
+import { MapView } from "@/components/ui/MapView";
+import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 
 // Mock incident data
 const mockIncidents: Incident[] = [
