@@ -169,6 +169,19 @@ class ResourceResponse(BaseModel):
     distance_km: Optional[float] = None
 
 
+class LiveEventResponse(BaseModel):
+    event_id: str
+    case_id: str
+    description: str
+    latitude: float
+    longitude: float
+    timestamp: datetime
+    case_severity: int
+    case_status: str
+    case_category: Optional[str] = None
+    case_title: Optional[str] = None
+
+
 # Emergency categorization patterns
 EMERGENCY_PATTERNS = {
     "fuel": [
@@ -779,6 +792,44 @@ async def get_cases(
                 for r in results:
                     r["id"] = str(r["id"])
                 return [CaseResponse(**r) for r in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/events/live", response_model=List[LiveEventResponse])
+async def get_live_events(limit: int = Query(200, ge=1, le=500)) -> List[LiveEventResponse]:
+    """Get latest geolocated events enriched with case status/severity."""
+    try:
+        with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        e.id AS event_id,
+                        e.case_id,
+                        e.description,
+                        e.latitude,
+                        e.longitude,
+                        e.timestamp,
+                        c.severity AS case_severity,
+                        c.status AS case_status,
+                        c.category AS case_category,
+                        c.title AS case_title
+                    FROM event e
+                    JOIN "case" c ON c.id = e.case_id
+                    WHERE e.latitude IS NOT NULL AND e.longitude IS NOT NULL
+                    ORDER BY e.timestamp DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                results = cur.fetchall()
+
+                for row in results:
+                    row["event_id"] = str(row["event_id"])
+                    row["case_id"] = str(row["case_id"])
+
+                return [LiveEventResponse(**row) for row in results]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
