@@ -271,7 +271,8 @@ resource "aws_ecs_task_definition" "main" {
         { name = "TWILIO_ACCOUNT_SID", value = var.twilio_account_sid },
         { name = "TWILIO_AUTH_TOKEN", value = var.twilio_auth_token },
         { name = "TWILIO_FROM_NUMBER", value = var.twilio_from_number },
-        { name = "WORKFLOW_WEBHOOK_URL", value = "https://${aws_cloudfront_distribution.main.domain_name}/twilio/webhooks" }
+        { name = "WORKFLOW_WEBHOOK_URL", value = "https://${aws_cloudfront_distribution.main.domain_name}/twilio/webhooks" },
+        { name = "OPENAI_API_KEY", value = var.openai_api_key }
       ])
 
       logConfiguration = {

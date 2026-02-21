@@ -1,17 +1,23 @@
 """Twilio Media Stream WebSocket handler (connected, start, media, stop, mark, dtmf)."""
 
 import base64
+import io
 import json
 import logging
 import math
+import struct
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
+
+import env
 
 webhook_logger = logging.getLogger("uvicorn.error")
 
 # Log when this many consecutive silent chunks (~50 chunks/sec → 50 ≈ 1 sec, 100 ≈ 2 sec)
 SILENCE_CHUNKS_FOR_LOG = 50
+# Minimum chunks of audio to send to Whisper (~0.5 sec)
+MIN_CHUNKS_FOR_WHISPER = 25
 # Audio threshold: chunk is "silent" if RMS (linear PCM, 0–32767) is below this
 AUDIO_SILENCE_THRESHOLD = 200
 
@@ -56,6 +62,55 @@ def _is_silent(payload_base64: str) -> bool:
     return _mulaw_payload_rms(payload_base64) < AUDIO_SILENCE_THRESHOLD
 
 
+def _mulaw_payloads_to_wav(payloads_base64: list[str], sample_rate: int = 8000) -> bytes | None:
+    """Decode base64 μ-law payloads to 16-bit PCM and return a WAV file in memory. Returns None if empty or invalid."""
+    if not payloads_base64:
+        return None
+    _build_mulaw_table()
+    samples: list[int] = []
+    for p in payloads_base64:
+        try:
+            raw = base64.b64decode(p, validate=True)
+            for b in raw:
+                samples.append(_MULAW_EXPAND_TABLE[b])
+        except Exception:
+            continue
+    if not samples:
+        return None
+    # WAV: RIFF + fmt + data
+    pcm = struct.pack(f"<{len(samples)}h", *samples)
+    n = len(pcm)
+    byte_rate = sample_rate * 2
+    header = (
+        b"RIFF"
+        + struct.pack("<I", 36 + n)
+        + b"WAVE"
+        + b"fmt "
+        + struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, byte_rate, 2, 16)
+        + b"data"
+        + struct.pack("<I", n)
+    )
+    return header + pcm
+
+
+async def _whisper_transcribe(wav_bytes: bytes) -> str | None:
+    """Transcribe WAV bytes with OpenAI Whisper. Returns None if key missing or API error."""
+    if not env.OPENAI_API_KEY:
+        webhook_logger.warning("voice_ws_whisper_skip OPENAI_API_KEY not set")
+        return None
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=env.OPENAI_API_KEY)
+        file_like = io.BytesIO(wav_bytes)
+        file_like.name = "audio.wav"
+        resp = client.audio.transcriptions.create(model="whisper-1", file=file_like, response_format="text")
+        return (resp if isinstance(resp, str) else getattr(resp, "text", None)) or None
+    except Exception:
+        webhook_logger.exception("voice_ws_whisper_error")
+        return None
+
+
 async def handle_voice_media_stream(websocket: WebSocket) -> None:
     """
     Handle a single Twilio bidirectional Media Stream.
@@ -70,6 +125,7 @@ async def handle_voice_media_stream(websocket: WebSocket) -> None:
     last_chunk_was_silent: bool | None = None
     media_chunk_count = 0
     already_logged_2s_silence = False
+    utterance_buffer: list[str] = []
 
     try:
         while True:
@@ -135,6 +191,7 @@ async def handle_voice_media_stream(websocket: WebSocket) -> None:
                         rms,
                         silent,
                     )
+                utterance_buffer.append(payload)
                 if silent:
                     consecutive_silent_chunks += 1
                     if consecutive_silent_chunks > max_consecutive_silent_chunks_seen:
@@ -145,6 +202,26 @@ async def handle_voice_media_stream(websocket: WebSocket) -> None:
                             stream_sid,
                             call_sid,
                         )
+                        # Transcribe utterance (audio before the 2s silence) with Whisper
+                        speech_payloads = utterance_buffer[:-SILENCE_CHUNKS_FOR_LOG]
+                        if len(speech_payloads) >= MIN_CHUNKS_FOR_WHISPER:
+                            wav_bytes = _mulaw_payloads_to_wav(speech_payloads)
+                            if wav_bytes:
+                                text = await _whisper_transcribe(wav_bytes)
+                                if text is not None:
+                                    webhook_logger.info(
+                                        "voice_ws_whisper_transcription stream_sid=%s call_sid=%s text=%s",
+                                        stream_sid,
+                                        call_sid,
+                                        text.strip(),
+                                    )
+                                else:
+                                    webhook_logger.info(
+                                        "voice_ws_whisper_transcription stream_sid=%s call_sid=%s text=(none)",
+                                        stream_sid,
+                                        call_sid,
+                                    )
+                        utterance_buffer = []
                         already_logged_2s_silence = True
                 else:
                     consecutive_silent_chunks = 0

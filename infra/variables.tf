@@ -105,4 +105,11 @@ variable "twilio_from_number" {
   type        = string
   sensitive   = true
 }
+
+variable "openai_api_key" {
+  description = "OpenAI API key for voice transcription (Whisper). Optional; set in terraform.auto.tfvars."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
  
