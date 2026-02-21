@@ -1,5 +1,6 @@
 """Twilio Media Stream WebSocket handler (connected, start, media, stop, mark, dtmf)."""
 
+import asyncio
 import base64
 import io
 import json
@@ -11,6 +12,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 import env
+from elevenlabs import text_to_speech as elevenlabs_tts
 
 webhook_logger = logging.getLogger("uvicorn.error")
 
@@ -20,6 +22,8 @@ SILENCE_CHUNKS_FOR_LOG = 50
 MIN_CHUNKS_FOR_WHISPER = 25
 # Audio threshold: chunk is "silent" if RMS (linear PCM, 0–32767) is below this
 AUDIO_SILENCE_THRESHOLD = 200
+# Twilio outbound media: 20ms per chunk at 8kHz μ-law = 160 bytes
+OUTBOUND_CHUNK_BYTES = 160
 
 # G.711 μ-law decode table (8-bit mulaw -> 16-bit linear)
 _MULAW_EXPAND_TABLE: list[int] = []
@@ -91,6 +95,33 @@ def _mulaw_payloads_to_wav(payloads_base64: list[str], sample_rate: int = 8000) 
         + struct.pack("<I", n)
     )
     return header + pcm
+
+
+async def _send_tts_to_call(websocket: WebSocket, stream_sid: str, text: str) -> None:
+    """Generate TTS for text via ElevenLabs and stream μ-law chunks back over the call."""
+    loop = asyncio.get_event_loop()
+    try:
+        audio_bytes = await loop.run_in_executor(None, lambda: elevenlabs_tts(text))
+    except Exception:
+        webhook_logger.exception("voice_ws_tts_generate_error stream_sid=%s", stream_sid)
+        return
+    if not audio_bytes:
+        return
+    try:
+        for i in range(0, len(audio_bytes), OUTBOUND_CHUNK_BYTES):
+            chunk = audio_bytes[i : i + OUTBOUND_CHUNK_BYTES]
+            if not chunk:
+                break
+            payload_b64 = base64.b64encode(chunk).decode("ascii")
+            msg = {
+                "event": "media",
+                "streamSid": stream_sid,
+                "media": {"payload": payload_b64},
+            }
+            await websocket.send_json(msg)
+            await asyncio.sleep(0.02)
+    except Exception:
+        webhook_logger.exception("voice_ws_tts_send_error stream_sid=%s", stream_sid)
 
 
 async def _whisper_transcribe(wav_bytes: bytes) -> str | None:
@@ -209,12 +240,17 @@ async def handle_voice_media_stream(websocket: WebSocket) -> None:
                             if wav_bytes:
                                 text = await _whisper_transcribe(wav_bytes)
                                 if text is not None:
+                                    transcript = text.strip()
                                     webhook_logger.info(
                                         "voice_ws_whisper_transcription stream_sid=%s call_sid=%s text=%s",
                                         stream_sid,
                                         call_sid,
-                                        text.strip(),
+                                        transcript,
                                     )
+                                    if transcript:
+                                        asyncio.create_task(
+                                            _send_tts_to_call(websocket, stream_sid, transcript)
+                                        )
                                 else:
                                     webhook_logger.info(
                                         "voice_ws_whisper_transcription stream_sid=%s call_sid=%s text=(none)",
