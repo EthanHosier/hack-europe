@@ -22,7 +22,14 @@ const REGIONS: Record<string, { lat: [number, number]; lng: [number, number] }> 
   "Upplands Väsby":   { lat: [59.490, 59.530], lng: [17.890, 17.980] },
 };
 
-const TYPES: Incident["type"][] = ["fire", "medical", "rescue", "disaster", "emergency"];
+const TYPES: Incident["type"][] = [
+  "fire",
+  "medical",
+  "rescue",
+  "disaster",
+  "emergency",
+  "other",
+];
 const SEVERITIES: Incident["severity"][] = ["critical", "high", "moderate", "low"];
 const STATUSES: Incident["status"][] = ["unassigned", "matching", "assigned"];
 
@@ -64,6 +71,13 @@ const DESCRIPTIONS: Record<Incident["type"], string[]> = {
     "Missing child — last seen near waterfront",
     "Suspicious device reported in public area",
     "Hazmat leak from overturned vehicle",
+  ],
+  other: [
+    "Non-categorized assistance request reported",
+    "Public safety incident under assessment",
+    "Unknown incident type awaiting triage",
+    "General emergency support requested",
+    "Unclassified field report submitted",
   ],
 };
 

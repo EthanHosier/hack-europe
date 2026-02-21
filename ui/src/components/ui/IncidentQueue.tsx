@@ -3,7 +3,7 @@ import { AlertTriangle, Flame, Heart, Home, Zap, Clock } from "lucide-react";
 
 export interface Incident {
   id: string;
-  type: "fire" | "medical" | "rescue" | "disaster" | "emergency";
+  type: "fire" | "medical" | "rescue" | "disaster" | "emergency" | "other";
   description: string;
   region: string;
   severity: "critical" | "high" | "moderate" | "low";
@@ -17,6 +17,12 @@ interface IncidentQueueProps {
   incidents: Incident[];
   selectedId: string | null;
   onSelectIncident: (id: string) => void;
+  incidentTypes: Incident["type"][];
+  selectedTypes: Incident["type"][];
+  incidentTypeCounts: Record<Incident["type"], number>;
+  onToggleType: (type: Incident["type"]) => void;
+  onSelectAllTypes: () => void;
+  onClearAllTypes: () => void;
 }
 
 export interface IncidentQueueHandle {
@@ -49,6 +55,7 @@ const typeIcons = {
   rescue: AlertTriangle,
   disaster: Home,
   emergency: Zap,
+  other: AlertTriangle,
 };
 
 export const IncidentQueue = forwardRef<IncidentQueueHandle, IncidentQueueProps>(
@@ -56,6 +63,12 @@ function IncidentQueue({
   incidents,
   selectedId,
   onSelectIncident,
+  incidentTypes,
+  selectedTypes,
+  incidentTypeCounts,
+  onToggleType,
+  onSelectAllTypes,
+  onClearAllTypes,
 }, ref) {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -78,12 +91,53 @@ function IncidentQueue({
   return (
     <div className="w-[340px] bg-[#0f1419] border-r border-[#1e2530] flex flex-col">
       <div className="h-12 border-b border-[#1e2530] flex items-center px-4">
-        <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500]">
+        <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-medium">
           Live Incidents
         </span>
-        <span className="ml-auto text-[12px] text-[#5b8dbf] tabular-nums font-[500]">
+        <span className="ml-auto text-[12px] text-[#5b8dbf] tabular-nums font-medium">
           {incidents.length}
         </span>
+      </div>
+      <div className="border-b border-[#1e2530] px-4 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">
+            Type Filter
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onSelectAllTypes}
+              className="text-[10px] uppercase tracking-wider text-[#5b8dbf] hover:text-[#7ea8d1]"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={onClearAllTypes}
+              className="text-[10px] uppercase tracking-wider text-[#6b7280] hover:text-[#9ca3af]"
+            >
+              None
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {incidentTypes.map((type) => (
+            <label
+              key={type}
+              className="flex items-center gap-2 text-[11px] text-[#9ca3af] capitalize cursor-pointer select-none"
+            >
+              <input
+                type="checkbox"
+                checked={selectedTypes.includes(type)}
+                onChange={() => onToggleType(type)}
+                className="accent-[#5b8dbf]"
+              />
+              <span>
+                {type} ({incidentTypeCounts[type] ?? 0})
+              </span>
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -133,7 +187,7 @@ function IncidentQueue({
 
                   <div className="flex items-center gap-2 flex-wrap">
                     <span
-                      className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-[500]"
+                      className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-medium"
                       style={{
                         backgroundColor: `${
                           severityColors[incident.severity]
