@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl, { type GeoJSONSource } from "mapbox-gl";
 import type { Incident } from "./IncidentQueue";
-import { env } from "@/lib/env";
 
 interface MapViewProps {
   incidents: Incident[];
@@ -16,7 +15,7 @@ const severityColors = {
   low: "#4A4A5A",
 } as const;
 
-const MAPBOX_ACCESS_TOKEN = env.VITE_MAPBOX_ACCESS_TOKEN;
+const MAPBOX_ACCESS_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN ?? "";
 const INCIDENT_SOURCE_ID = "incidents";
 const STOCKHOLM_CENTER: [number, number] = [18.0686, 59.3293];
 
