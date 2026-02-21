@@ -1,3 +1,7 @@
+"""
+HackEurope API: health, SMS/voice webhooks, messages.
+"""
+
 import json
 import logging
 import uuid
@@ -5,14 +9,23 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import psycopg
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from psycopg.rows import dict_row
+from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 from twilio.base.exceptions import TwilioRestException
 
 from env import SUPABASE_POSTGRES_URL, VOICE_STREAM_WS_URL
-from twilio_service import TwilioConfigError, send_sms, validate_twilio_signature
+from workflow_bridge import build_inbound_event, handle_inbound_message
+from db import persist_event, persist_text_message
+from twilio_app import (
+    TwilioConfigError,
+    build_connect_stream_twiml,
+    build_say_hangup_twiml,
+    handle_voice_media_stream,
+    send_sms,
+)
 from agent import EmergencyAgent, EmergencyInfo
 
 app = FastAPI(title="HackEurope API")
@@ -25,6 +38,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- Response models ---
 
 
 class RootResponse(BaseModel):
@@ -58,72 +74,7 @@ class SendSmsResponse(BaseModel):
     persistence_error: str | None = None
 
 
-def persist_text_message(
-    *,
-    target: str,
-    raw_text: str,
-    direction: str,
-    provider_message_sid: str | None = None,
-    delivery_status: str | None = None,
-) -> str:
-    with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO text_message (
-                        source, target, raw_text, direction, provider_message_sid, delivery_status
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (
-                        "SMS",
-                        target,
-                        raw_text,
-                        direction,
-                        provider_message_sid,
-                        delivery_status,
-                    ),
-                )
-                inserted_id = cur.fetchone()[0]
-            except psycopg.errors.UndefinedColumn:
-                # Backward compatibility if migrations were not applied yet.
-                cur.execute(
-                    """
-                    INSERT INTO text_message (source, target, raw_text)
-                    VALUES (%s, %s, %s)
-                    RETURNING id
-                    """,
-                    ("SMS", target, raw_text),
-                )
-                inserted_id = cur.fetchone()[0]
-    return str(inserted_id)
-
-
-def persist_event(
-    *,
-    case_id: str,
-    description: str,
-    text_message_id: str | None = None,
-) -> None:
-    with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO event (case_id, description, text_message_id)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (case_id, description, text_message_id),
-                )
-            except psycopg.errors.UndefinedColumn:
-                cur.execute(
-                    """
-                    INSERT INTO event (case_id, description)
-                    VALUES (%s, %s)
-                    """,
-                    (case_id, description),
-                )
+# --- Health & debug ---
 
 
 # Emergency Response Models
@@ -299,7 +250,7 @@ def healthcheck() -> HealthResponse:
 
 @app.get("/debug/routes")
 def debug_routes() -> dict[str, list[str]]:
-    """List registered routes (path -> methods). Remove in production if desired."""
+    """Registered routes (path -> methods). Remove in production if desired."""
     routes: dict[str, list[str]] = {}
     for r in app.routes:
         path = getattr(r, "path", None)
@@ -315,7 +266,6 @@ def debug_routes() -> dict[str, list[str]]:
 
 @app.get("/db/health", response_model=DbHealthResponse)
 def db_health() -> DbHealthResponse:
-    """Check connection to the database."""
     try:
         with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
             with conn.cursor() as cur:
@@ -326,18 +276,19 @@ def db_health() -> DbHealthResponse:
         raise HTTPException(status_code=503, detail=str(e))
 
 
+# --- Twilio SMS webhook ---
+
+
 @app.post("/twilio/webhooks/sms")
 async def twilio_sms_webhook(request: Request) -> Response:
-    headers = {k: v for k, v in request.headers.items()}
     payload: dict[str, str] = {}
     try:
         form = await request.form()
         payload = {k: str(v) for k, v in form.items()}
         webhook_logger.info(
-            "twilio_sms_inbound_received method=%s url=%s headers=%s payload=%s",
+            "twilio_sms_inbound_received method=%s url=%s payload=%s",
             request.method,
             str(request.url),
-            json.dumps(headers, ensure_ascii=False),
             json.dumps(payload, ensure_ascii=False),
         )
 
@@ -347,10 +298,7 @@ async def twilio_sms_webhook(request: Request) -> Response:
         message_sid = payload.get("MessageSid")
 
         if not from_number or not to_number or not body:
-            webhook_logger.warning(
-                "twilio_sms_inbound_missing_fields payload=%s",
-                json.dumps(payload, ensure_ascii=False),
-            )
+            webhook_logger.warning("twilio_sms_inbound_missing_fields payload=%s", json.dumps(payload, ensure_ascii=False))
             raise HTTPException(status_code=400, detail="Missing Twilio message fields")
 
         message_row_id = persist_text_message(
@@ -361,7 +309,7 @@ async def twilio_sms_webhook(request: Request) -> Response:
             delivery_status="received",
         )
         webhook_logger.info(
-            "twilio_sms_inbound_persisted message_row_id=%s message_sid=%s from_number=%s to_number=%s",
+            "twilio_sms_inbound_persisted message_row_id=%s message_sid=%s from=%s to=%s",
             message_row_id,
             message_sid,
             from_number,
@@ -373,7 +321,6 @@ async def twilio_sms_webhook(request: Request) -> Response:
         try:
             with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
                 with conn.cursor() as cur:
-                    # Get recent messages from this phone number (limit to last 10 for context)
                     cur.execute(
                         """
                         SELECT raw_text, direction, created_at
@@ -386,103 +333,66 @@ async def twilio_sms_webhook(request: Request) -> Response:
                         (from_number, message_row_id),
                     )
                     messages = cur.fetchall()
-
-                    # Build conversation history in chronological order
-                    for msg in reversed(messages):  # Reverse to get chronological order
+                    for msg in reversed(messages):
                         if msg["direction"] == "Inbound":
-                            conversation_history.append({
-                                "role": "user",
-                                "content": msg["raw_text"]
-                            })
+                            conversation_history.append({"role": "user", "content": msg["raw_text"]})
                         else:
-                            conversation_history.append({
-                                "role": "assistant",
-                                "content": msg["raw_text"]
-                            })
+                            conversation_history.append({"role": "assistant", "content": msg["raw_text"]})
         except Exception as e:
-            webhook_logger.error(f"Failed to get conversation history: {e}")
+            webhook_logger.error("Failed to get conversation history: %s", e)
 
         # Process message through the AI agent
         try:
             agent = EmergencyAgent(SUPABASE_POSTGRES_URL)
-
-            # Generate a UUID for user_id, but use phone number for tracking
-            import uuid
             user_id = str(uuid.uuid4())
-            # Store the phone number in the metadata or use it for lookup later
-
-            # Process the message
             response_text, case_id, info = agent.process_message(
                 body, conversation_history, user_id, SUPABASE_POSTGRES_URL
             )
+        except Exception as e:
+            webhook_logger.exception("agent.process_message failed: %s", e)
+            response_text = "Sorry, we're unable to process your message right now."
 
-            # Limit SMS response to 1600 characters (SMS limit)
-            if len(response_text) > 1600:
-                response_text = response_text[:1597] + "..."
+        # Limit SMS response to 1600 characters (SMS limit)
+        if len(response_text) > 1600:
+            response_text = response_text[:1597] + "..."
 
-            # Send SMS response
+        # Send SMS response
+        try:
+            sms_result = send_sms(from_number, response_text)
+            persist_text_message(
+                target=from_number,
+                raw_text=response_text,
+                direction="Outbound",
+                provider_message_sid=sms_result.message_sid,
+                delivery_status=sms_result.status,
+            )
+            webhook_logger.info(
+                "twilio_sms_response_sent message_sid=%s to_number=%s response_length=%s",
+                sms_result.message_sid,
+                from_number,
+                len(response_text),
+            )
+        except Exception as e:
+            webhook_logger.error("Failed to send SMS response: %s", e)
             try:
-                # For testing: you can comment out the actual SMS sending if needed
-                sms_result = send_sms(from_number, response_text)
-
-                # Persist outbound message
-                outbound_msg_id = persist_text_message(
+                persist_text_message(
                     target=from_number,
                     raw_text=response_text,
                     direction="Outbound",
-                    provider_message_sid=sms_result.message_sid,
-                    delivery_status=sms_result.status,
+                    provider_message_sid=None,
+                    delivery_status="failed",
                 )
-
-                webhook_logger.info(
-                    "twilio_sms_response_sent message_sid=%s to_number=%s response_length=%s",
-                    sms_result.message_sid,
-                    from_number,
-                    len(response_text),
-                )
-            except Exception as e:
-                webhook_logger.error(f"Failed to send SMS response: {e}")
-                # Still persist the AI response even if SMS sending fails
-                try:
-                    persist_text_message(
-                        target=from_number,
-                        raw_text=response_text,
-                        direction="Outbound",
-                        provider_message_sid=None,
-                        delivery_status="failed",
-                    )
-                    webhook_logger.info(f"AI response saved despite SMS failure: {response_text[:100]}...")
-                except:
-                    pass
-
-            # Log case creation if applicable
-            if case_id:
-                persist_event(
-                    case_id=case_id,
-                    description=f"SMS Emergency: {body[:200]}",
-                    text_message_id=message_row_id,
-                )
-                webhook_logger.info(
-                    "twilio_sms_case_created case_id=%s from_number=%s",
-                    case_id,
-                    from_number,
-                )
-
-        except Exception as e:
-            webhook_logger.error(f"AI agent processing failed: {e}")
-            # Send a fallback message
-            try:
-                fallback_msg = "Emergency system received your message. If urgent, please call 911."
-                sms_result = send_sms(from_number, fallback_msg)
-                persist_text_message(
-                    target=from_number,
-                    raw_text=fallback_msg,
-                    direction="Outbound",
-                    provider_message_sid=sms_result.message_sid,
-                    delivery_status=sms_result.status,
-                )
-            except:
+            except Exception:
                 pass
+
+        # Log case creation if applicable
+        if case_id:
+            persist_event(
+                case_id=case_id,
+                description=f"SMS Emergency: {body[:200]}",
+                text_message_id=message_row_id,
+            )
+            webhook_logger.info("twilio_sms_case_created case_id=%s from_number=%s", case_id, from_number)
 
         webhook_logger.info("twilio_sms_inbound_processed message_sid=%s", message_sid)
         return Response(
@@ -490,51 +400,19 @@ async def twilio_sms_webhook(request: Request) -> Response:
             media_type="application/xml",
             status_code=200,
         )
-    except HTTPException as exc:
-        webhook_logger.warning(
-            "twilio_sms_inbound_http_error status_code=%s detail=%s payload=%s",
-            exc.status_code,
-            exc.detail,
-            json.dumps(payload, ensure_ascii=False),
-        )
+    except HTTPException:
         raise
     except Exception:
-        webhook_logger.exception(
-            "twilio_sms_inbound_failed headers=%s payload=%s",
-            json.dumps(headers, ensure_ascii=False),
-            json.dumps(payload, ensure_ascii=False),
-        )
+        webhook_logger.exception("twilio_sms_inbound_failed payload=%s", json.dumps(payload, ensure_ascii=False))
         raise
 
 
-def _voice_twiml_connect_stream(ws_url: str, call_sid: str, from_number: str, to_number: str) -> str:
-    """Build TwiML that connects the call to a bidirectional Media Stream."""
-    from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
-
-    response = VoiceResponse()
-    connect = Connect()
-    stream = Stream(url=ws_url)
-    stream.parameter(name="CallSid", value=call_sid)
-    stream.parameter(name="From", value=from_number)
-    stream.parameter(name="To", value=to_number)
-    connect.append(stream)
-    response.append(connect)
-    return response.to_xml()
-
-
-def _voice_twiml_say_hangup(message: str) -> str:
-    """Build TwiML that speaks a message and hangs up."""
-    from twilio.twiml.voice_response import VoiceResponse
-
-    response = VoiceResponse()
-    response.say(message, voice="alice")
-    response.hangup()
-    return response.to_xml()
+# --- Twilio voice webhook & Media Stream WebSocket ---
 
 
 @app.post("/twilio/webhooks/voice")
 async def twilio_voice_webhook(request: Request) -> Response:
-    """Twilio 'A call comes in' webhook. Returns TwiML to answer and connect to Media Stream or say and hang up."""
+    """Answer call with TwiML: connect to Media Stream (if VOICE_STREAM_WS_URL set) or say and hang up."""
     payload: dict[str, str] = {}
     try:
         form = await request.form()
@@ -543,15 +421,10 @@ async def twilio_voice_webhook(request: Request) -> Response:
         from_number = payload.get("From", "").strip()
         to_number = payload.get("To", "").strip()
 
-        webhook_logger.info(
-            "twilio_voice_inbound call_sid=%s from=%s to=%s",
-            call_sid,
-            from_number,
-            to_number,
-        )
+        webhook_logger.info("twilio_voice_inbound call_sid=%s from=%s to=%s", call_sid, from_number, to_number)
 
         if VOICE_STREAM_WS_URL:
-            twiml = _voice_twiml_connect_stream(
+            twiml = build_connect_stream_twiml(
                 ws_url=VOICE_STREAM_WS_URL,
                 call_sid=call_sid,
                 from_number=from_number,
@@ -559,99 +432,22 @@ async def twilio_voice_webhook(request: Request) -> Response:
             )
             webhook_logger.info("twilio_voice_connect_stream call_sid=%s ws_url=%s", call_sid, VOICE_STREAM_WS_URL)
         else:
-            twiml = _voice_twiml_say_hangup(
-                "The voice service is not configured. Goodbye."
-            )
+            twiml = build_say_hangup_twiml("The voice service is not configured. Goodbye.")
             webhook_logger.warning("twilio_voice_no_ws_url call_sid=%s returning say_hangup", call_sid)
 
         return Response(content=twiml, media_type="application/xml", status_code=200)
     except Exception:
-        webhook_logger.exception(
-            "twilio_voice_webhook_failed payload=%s",
-            json.dumps(payload, ensure_ascii=False),
-        )
+        webhook_logger.exception("twilio_voice_webhook_failed payload=%s", json.dumps(payload, ensure_ascii=False))
         raise
 
 
 @app.websocket("/ws/voice")
 async def twilio_voice_websocket(websocket: WebSocket) -> None:
-    """
-    Twilio Media Stream WebSocket (bidirectional).
-    Receives: connected, start, media, stop (and mark, dtmf).
-    Sends: media (TTS), mark, clear when implemented.
-    """
-    await websocket.accept()
-    stream_sid: str | None = None
-    call_sid: str | None = None
-    try:
-        while True:
-            raw = await websocket.receive_text()
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
-                webhook_logger.warning("voice_ws_invalid_json stream_sid=%s raw=%s", stream_sid, raw[:200])
-                continue
+    """Twilio bidirectional Media Stream (audio in/out)."""
+    await handle_voice_media_stream(websocket)
 
-            event = msg.get("event")
-            if event == "connected":
-                webhook_logger.info(
-                    "voice_ws_connected protocol=%s version=%s",
-                    msg.get("protocol"),
-                    msg.get("version"),
-                )
-            elif event == "start":
-                stream_sid = msg.get("streamSid")
-                start = msg.get("start") or {}
-                call_sid = start.get("callSid")
-                custom = start.get("customParameters") or {}
-                webhook_logger.info(
-                    "voice_ws_start stream_sid=%s call_sid=%s custom=%s",
-                    stream_sid,
-                    call_sid,
-                    json.dumps(custom, ensure_ascii=False),
-                )
-            elif event == "media":
-                # Inbound audio: media.track "inbound", media.payload base64 mulaw.
-                # Log occasionally; full pipeline (Whisper, agent, TTS) can consume payload later.
-                media = msg.get("media") or {}
-                if media.get("track") == "inbound" and stream_sid:
-                    try:
-                        chunk_num = int(media.get("chunk") or "0")
-                        if chunk_num <= 2 or chunk_num % 50 == 0:
-                            webhook_logger.debug(
-                                "voice_ws_media stream_sid=%s chunk=%s",
-                                stream_sid,
-                                chunk_num,
-                            )
-                    except (TypeError, ValueError):
-                        pass
-            elif event == "stop":
-                stop = msg.get("stop") or {}
-                webhook_logger.info(
-                    "voice_ws_stop stream_sid=%s call_sid=%s",
-                    msg.get("streamSid"),
-                    stop.get("callSid"),
-                )
-                break
-            elif event == "mark":
-                webhook_logger.debug("voice_ws_mark stream_sid=%s mark=%s", stream_sid, msg.get("mark"))
-            elif event == "dtmf":
-                webhook_logger.info(
-                    "voice_ws_dtmf stream_sid=%s digit=%s",
-                    stream_sid,
-                    (msg.get("dtmf") or {}).get("digit"),
-                )
-            else:
-                webhook_logger.debug("voice_ws_unknown event=%s stream_sid=%s", event, stream_sid)
-    except WebSocketDisconnect:
-        webhook_logger.info("voice_ws_disconnect stream_sid=%s call_sid=%s", stream_sid, call_sid)
-    except Exception:
-        webhook_logger.exception("voice_ws_error stream_sid=%s call_sid=%s", stream_sid, call_sid)
-    finally:
-        try:
-            await websocket.close()
-        except Exception:
-            pass
+
+# --- Messages API ---
 
 
 @app.post("/messages/send", response_model=SendSmsResponse)
@@ -676,7 +472,7 @@ def send_message(payload: SendSmsRequest) -> SendSmsResponse:
         if case_id:
             persist_event(
                 case_id=case_id,
-                description=f"Outbound SMS sent to {result.to_number}: {payload.body}",
+                description=f"Outbound SMS to {result.to_number}: {payload.body}",
                 text_message_id=message_row_id,
             )
     except Exception as e:

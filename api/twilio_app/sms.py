@@ -1,3 +1,5 @@
+"""Twilio SMS: send messages, client, signature validation."""
+
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -40,7 +42,6 @@ def get_twilio_client() -> tuple[Client, str]:
 def validate_twilio_signature(
     request_url: str, form_data: Mapping[str, str], signature: str | None
 ) -> bool:
-    # If auth token is unset (local dev), skip signature checks.
     if not TWILIO_AUTH_TOKEN:
         return True
     if not signature:
@@ -55,7 +56,6 @@ def send_sms(to_number: str, body: str) -> SentSmsResult:
         message = client.messages.create(to=to_number, from_=from_number, body=body)
     except TwilioRestException:
         raise
-
     return SentSmsResult(
         message_sid=message.sid,
         status=message.status,
