@@ -14,6 +14,8 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER")
 WORKFLOW_WEBHOOK_URL = os.environ.get("WORKFLOW_WEBHOOK_URL")
+# Optional: WSS URL for Twilio Media Stream (voice calls). If set, incoming calls are connected to this stream.
+VOICE_STREAM_WS_URL = os.environ.get("VOICE_STREAM_WS_URL")
 # Optional: Google APIs (Gemini, Maps). CI may run without them (e.g. OpenAPI export).
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
@@ -30,6 +32,5 @@ if not TWILIO_AUTH_TOKEN:
     raise RuntimeError("TWILIO_AUTH_TOKEN is required; set it in .env at project root")
 if not TWILIO_FROM_NUMBER:
     raise RuntimeError("TWILIO_FROM_NUMBER is required; set it in .env at project root")
-# WORKFLOW_WEBHOOK_URL is now optional since we're using the AI agent directly
-# if not WORKFLOW_WEBHOOK_URL:
-#     raise RuntimeError("WORKFLOW_WEBHOOK_URL is required; set it in .env at project root")
+if not WORKFLOW_WEBHOOK_URL:
+    raise RuntimeError("WORKFLOW_WEBHOOK_URL is required; set it in .env at project root")

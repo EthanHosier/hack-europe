@@ -1,20 +1,17 @@
 import json
 import logging
-from typing import Any
-
-import psycopg
-from fastapi import FastAPI, HTTPException, Request
 import uuid
 from datetime import datetime
-from typing import List, Optional, Tuple, Dict, Literal
-from psycopg.rows import dict_row
-from fastapi import FastAPI, HTTPException, Header, Query
+from typing import Any, Dict, List, Literal, Optional, Tuple
+
+import psycopg
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 from twilio.base.exceptions import TwilioRestException
 
-from env import SUPABASE_POSTGRES_URL
+from env import SUPABASE_POSTGRES_URL, VOICE_STREAM_WS_URL
 from twilio_service import TwilioConfigError, send_sms, validate_twilio_signature
 from agent import EmergencyAgent, EmergencyInfo
 
@@ -300,6 +297,22 @@ def healthcheck() -> HealthResponse:
     return HealthResponse(status="ok", version="0.1.0")
 
 
+@app.get("/debug/routes")
+def debug_routes() -> dict[str, list[str]]:
+    """List registered routes (path -> methods). Remove in production if desired."""
+    routes: dict[str, list[str]] = {}
+    for r in app.routes:
+        path = getattr(r, "path", None)
+        if not path or path == "/debug/routes":
+            continue
+        methods = getattr(r, "methods", None)
+        if methods is not None:
+            routes[path] = sorted(methods) if isinstance(methods, set) else list(methods)
+        else:
+            routes[path] = ["WS"]
+    return routes
+
+
 @app.get("/db/health", response_model=DbHealthResponse)
 def db_health() -> DbHealthResponse:
     """Check connection to the database."""
@@ -492,6 +505,153 @@ async def twilio_sms_webhook(request: Request) -> Response:
             json.dumps(payload, ensure_ascii=False),
         )
         raise
+
+
+def _voice_twiml_connect_stream(ws_url: str, call_sid: str, from_number: str, to_number: str) -> str:
+    """Build TwiML that connects the call to a bidirectional Media Stream."""
+    from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
+
+    response = VoiceResponse()
+    connect = Connect()
+    stream = Stream(url=ws_url)
+    stream.parameter(name="CallSid", value=call_sid)
+    stream.parameter(name="From", value=from_number)
+    stream.parameter(name="To", value=to_number)
+    connect.append(stream)
+    response.append(connect)
+    return response.to_xml()
+
+
+def _voice_twiml_say_hangup(message: str) -> str:
+    """Build TwiML that speaks a message and hangs up."""
+    from twilio.twiml.voice_response import VoiceResponse
+
+    response = VoiceResponse()
+    response.say(message, voice="alice")
+    response.hangup()
+    return response.to_xml()
+
+
+@app.post("/twilio/webhooks/voice")
+async def twilio_voice_webhook(request: Request) -> Response:
+    """Twilio 'A call comes in' webhook. Returns TwiML to answer and connect to Media Stream or say and hang up."""
+    payload: dict[str, str] = {}
+    try:
+        form = await request.form()
+        payload = {k: str(v) for k, v in form.items()}
+        call_sid = payload.get("CallSid", "").strip()
+        from_number = payload.get("From", "").strip()
+        to_number = payload.get("To", "").strip()
+
+        webhook_logger.info(
+            "twilio_voice_inbound call_sid=%s from=%s to=%s",
+            call_sid,
+            from_number,
+            to_number,
+        )
+
+        if VOICE_STREAM_WS_URL:
+            twiml = _voice_twiml_connect_stream(
+                ws_url=VOICE_STREAM_WS_URL,
+                call_sid=call_sid,
+                from_number=from_number,
+                to_number=to_number,
+            )
+            webhook_logger.info("twilio_voice_connect_stream call_sid=%s ws_url=%s", call_sid, VOICE_STREAM_WS_URL)
+        else:
+            twiml = _voice_twiml_say_hangup(
+                "The voice service is not configured. Goodbye."
+            )
+            webhook_logger.warning("twilio_voice_no_ws_url call_sid=%s returning say_hangup", call_sid)
+
+        return Response(content=twiml, media_type="application/xml", status_code=200)
+    except Exception:
+        webhook_logger.exception(
+            "twilio_voice_webhook_failed payload=%s",
+            json.dumps(payload, ensure_ascii=False),
+        )
+        raise
+
+
+@app.websocket("/ws/voice")
+async def twilio_voice_websocket(websocket: WebSocket) -> None:
+    """
+    Twilio Media Stream WebSocket (bidirectional).
+    Receives: connected, start, media, stop (and mark, dtmf).
+    Sends: media (TTS), mark, clear when implemented.
+    """
+    await websocket.accept()
+    stream_sid: str | None = None
+    call_sid: str | None = None
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                webhook_logger.warning("voice_ws_invalid_json stream_sid=%s raw=%s", stream_sid, raw[:200])
+                continue
+
+            event = msg.get("event")
+            if event == "connected":
+                webhook_logger.info(
+                    "voice_ws_connected protocol=%s version=%s",
+                    msg.get("protocol"),
+                    msg.get("version"),
+                )
+            elif event == "start":
+                stream_sid = msg.get("streamSid")
+                start = msg.get("start") or {}
+                call_sid = start.get("callSid")
+                custom = start.get("customParameters") or {}
+                webhook_logger.info(
+                    "voice_ws_start stream_sid=%s call_sid=%s custom=%s",
+                    stream_sid,
+                    call_sid,
+                    json.dumps(custom, ensure_ascii=False),
+                )
+            elif event == "media":
+                # Inbound audio: media.track "inbound", media.payload base64 mulaw.
+                # Log occasionally; full pipeline (Whisper, agent, TTS) can consume payload later.
+                media = msg.get("media") or {}
+                if media.get("track") == "inbound" and stream_sid:
+                    try:
+                        chunk_num = int(media.get("chunk") or "0")
+                        if chunk_num <= 2 or chunk_num % 50 == 0:
+                            webhook_logger.debug(
+                                "voice_ws_media stream_sid=%s chunk=%s",
+                                stream_sid,
+                                chunk_num,
+                            )
+                    except (TypeError, ValueError):
+                        pass
+            elif event == "stop":
+                stop = msg.get("stop") or {}
+                webhook_logger.info(
+                    "voice_ws_stop stream_sid=%s call_sid=%s",
+                    msg.get("streamSid"),
+                    stop.get("callSid"),
+                )
+                break
+            elif event == "mark":
+                webhook_logger.debug("voice_ws_mark stream_sid=%s mark=%s", stream_sid, msg.get("mark"))
+            elif event == "dtmf":
+                webhook_logger.info(
+                    "voice_ws_dtmf stream_sid=%s digit=%s",
+                    stream_sid,
+                    (msg.get("dtmf") or {}).get("digit"),
+                )
+            else:
+                webhook_logger.debug("voice_ws_unknown event=%s stream_sid=%s", event, stream_sid)
+    except WebSocketDisconnect:
+        webhook_logger.info("voice_ws_disconnect stream_sid=%s call_sid=%s", stream_sid, call_sid)
+    except Exception:
+        webhook_logger.exception("voice_ws_error stream_sid=%s call_sid=%s", stream_sid, call_sid)
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @app.post("/messages/send", response_model=SendSmsResponse)
