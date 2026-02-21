@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Incident } from "./IncidentQueue";
+import type { Incident } from "./IncidentQueue";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
 interface MapViewProps {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
-import { IncidentQueue, Incident } from "@/components/ui/IncidentQueue";
+import { IncidentQueue } from "@/components/ui/IncidentQueue";
+import type { Incident } from "@/components/ui/IncidentQueue";
 import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 

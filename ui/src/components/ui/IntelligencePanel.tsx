@@ -1,5 +1,5 @@
 import { Brain, CheckCircle, Navigation, Send, Shield } from "lucide-react";
-import { Incident } from "./IncidentQueue";
+import type { Incident } from "./IncidentQueue";
 
 interface Responder {
   id: string;
