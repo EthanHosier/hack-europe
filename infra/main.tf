@@ -144,6 +144,7 @@ resource "aws_lb" "main" {
   subnets            = [aws_subnet.public_1.id, aws_subnet.public_2.id]
 
   enable_deletion_protection = false
+  idle_timeout               = 300
 
   tags = { Name = "${var.project_name}-alb" }
 }
@@ -273,7 +274,10 @@ resource "aws_ecs_task_definition" "main" {
         { name = "TWILIO_FROM_NUMBER", value = var.twilio_from_number },
         { name = "WORKFLOW_WEBHOOK_URL", value = "https://${aws_cloudfront_distribution.main.domain_name}/twilio/webhooks" },
         { name = "OPENAI_API_KEY", value = var.openai_api_key },
-        { name = "ELEVEN_LABS_API_KEY", value = var.eleven_labs_api_key }
+        { name = "ELEVEN_LABS_API_KEY", value = var.eleven_labs_api_key },
+        { name = "GOOGLE_API_KEY", value = var.google_api_key },
+        { name = "GOOGLE_MAPS_API_KEY", value = var.google_maps_api_key },
+        { name = "VOICE_STREAM_WS_URL", value = "wss://api.${var.domain_name}/ws/voice/realtime" },
       ])
 
       logConfiguration = {
@@ -309,9 +313,75 @@ resource "aws_ecs_service" "main" {
     container_port   = var.app_port
   }
 
-  depends_on = [aws_lb_listener.main]
+  depends_on = [aws_lb_listener.main, aws_lb_listener.https]
 
   tags = { Name = "${var.project_name}-service" }
+}
+
+# ──────────────────────────────────────────────
+# Custom domain: api.hackeurope.click -> ALB (HTTPS + WSS)
+# ──────────────────────────────────────────────
+
+data "aws_route53_zone" "main" {
+  name = var.domain_name
+}
+
+resource "aws_acm_certificate" "api" {
+  domain_name       = "api.${var.domain_name}"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = { Name = "${var.project_name}-api-cert" }
+}
+
+resource "aws_route53_record" "api_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.api.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.main.zone_id
+}
+
+resource "aws_acm_certificate_validation" "api" {
+  certificate_arn         = aws_acm_certificate.api.arn
+  validation_record_fqdns = [for record in aws_route53_record.api_cert_validation : record.fqdn]
+}
+
+resource "aws_route53_record" "api" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "api.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate_validation.api.certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.main.arn
+  }
 }
 
 # S3 bucket for frontend static site (no public access; CloudFront only via OAC)

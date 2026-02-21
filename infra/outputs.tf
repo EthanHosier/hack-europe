@@ -82,3 +82,13 @@ output "frontend_bucket_name" {
   description = "S3 bucket for frontend static files (upload ui/dist here)"
   value       = aws_s3_bucket.frontend.id
 }
+
+output "api_domain" {
+  description = "Custom domain for API / voice WebSocket (HTTPS/WSS)"
+  value       = "api.${var.domain_name}"
+}
+
+output "voice_ws_url" {
+  description = "WebSocket URL for Twilio voice stream (set in Twilio dashboard)"
+  value       = "wss://api.${var.domain_name}/ws/voice/realtime"
+}
