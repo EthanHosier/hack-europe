@@ -6,7 +6,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useGetCasesCasesGet, useRespondToCaseCasesCaseIdRespondPost } from "@/api/generated/endpoints";
+import {
+  useGetCasesCasesGet,
+  useRespondToCaseCasesCaseIdRespondPost,
+} from "@/api/generated/endpoints";
 
 interface CaseListProps {
   userId: string;
@@ -21,11 +24,11 @@ export function CaseList({ userId, role, onSelectCase }: CaseListProps) {
       request: {
         headers: {
           "X-User-Id": userId,
-        }
+        },
       },
       query: {
         refetchInterval: 5000, // Poll every 5 seconds for updates
-      }
+      },
     }
   );
 
@@ -35,18 +38,22 @@ export function CaseList({ userId, role, onSelectCase }: CaseListProps) {
 
   const handleRespond = async (caseId: string) => {
     try {
-      await respondToCase.mutateAsync({
-        caseId: caseId,
-        data: {
-          message: "I can help with this emergency",
+      await respondToCase.mutateAsync(
+        {
+          caseId: caseId,
+          data: {
+            message: "I can help with this emergency",
+          },
+        },
+        {
+          //@ts-ignore
+          request: {
+            headers: {
+              "X-User-Id": userId,
+            },
+          },
         }
-      }, {
-        request: {
-          headers: {
-            "X-User-Id": userId,
-          }
-        }
-      });
+      );
       refetch();
       onSelectCase(caseId);
     } catch (error) {
@@ -56,29 +63,47 @@ export function CaseList({ userId, role, onSelectCase }: CaseListProps) {
 
   const getCategoryEmoji = (category: string | null) => {
     switch (category) {
-      case 'fuel': return '⛽';
-      case 'medical': return '🏥';
-      case 'shelter': return '🏠';
-      case 'food_water': return '🍞';
-      case 'rescue': return '🆘';
-      default: return '📋';
+      case "fuel":
+        return "⛽";
+      case "medical":
+        return "🏥";
+      case "shelter":
+        return "🏠";
+      case "food_water":
+        return "🍞";
+      case "rescue":
+        return "🆘";
+      default:
+        return "📋";
     }
   };
 
   const getSeverityColor = (severity: number) => {
-    if (severity >= 4) return 'text-destructive';
-    if (severity >= 3) return 'text-orange-500';
-    return 'text-yellow-500';
+    if (severity >= 4) return "text-destructive";
+    if (severity >= 3) return "text-orange-500";
+    return "text-yellow-500";
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'Open':
-        return <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Open</span>;
-      case 'In Progress':
-        return <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">In Progress</span>;
-      case 'Resolved':
-        return <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Resolved</span>;
+      case "Open":
+        return (
+          <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">
+            Open
+          </span>
+        );
+      case "In Progress":
+        return (
+          <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
+            In Progress
+          </span>
+        );
+      case "Resolved":
+        return (
+          <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
+            Resolved
+          </span>
+        );
       default:
         return null;
     }
@@ -97,21 +122,26 @@ export function CaseList({ userId, role, onSelectCase }: CaseListProps) {
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">
-        {role === 'Responder' ? 'Emergency Cases Needing Help' : 'Your Cases'}
+        {role === "Responder" ? "Emergency Cases Needing Help" : "Your Cases"}
       </h2>
       {cases.map((caseItem) => (
         <Card key={caseItem.id} className="hover:shadow-lg transition-shadow">
           <CardHeader>
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-2">
-                <span className="text-2xl">{getCategoryEmoji(caseItem.category)}</span>
+                <span className="text-2xl">
+                  {getCategoryEmoji(caseItem.category || null)}
+                </span>
                 <div>
                   <CardTitle className="text-lg">
-                    {caseItem.category ?
-                      caseItem.category.charAt(0).toUpperCase() + caseItem.category.slice(1).replace('_', ' ') :
-                      'Emergency'}
+                    {caseItem.category
+                      ? caseItem.category.charAt(0).toUpperCase() +
+                        caseItem.category.slice(1).replace("_", " ")
+                      : "Emergency"}
                   </CardTitle>
-                  <CardDescription className={getSeverityColor(caseItem.severity)}>
+                  <CardDescription
+                    className={getSeverityColor(caseItem.severity)}
+                  >
                     Severity: {caseItem.severity}/5
                   </CardDescription>
                 </div>
@@ -125,7 +155,7 @@ export function CaseList({ userId, role, onSelectCase }: CaseListProps) {
               Created: {new Date(caseItem.created_at).toLocaleString()}
             </p>
             <div className="flex gap-2">
-              {role === 'Responder' && caseItem.status === 'Open' && (
+              {role === "Responder" && caseItem.status === "Open" && (
                 <Button
                   onClick={() => handleRespond(caseItem.id)}
                   disabled={respondToCase.isPending}

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   useRegisterUserUsersRegisterPost,
   useCreateEmergencyEmergencyPost,
-  useRespondToCaseCasesCaseIdRespondPost
+  useRespondToCaseCasesCaseIdRespondPost,
 } from "@/api/generated/endpoints";
 
 interface Message {
@@ -28,8 +28,15 @@ export function TextChat() {
   const [input, setInput] = useState("");
   const [userState, setUserState] = useState<UserState>({});
   const [conversationState, setConversationState] = useState<
-    "greeting" | "getName" | "getPhone" | "getRole" | "confirmRegistration" |
-    "registered" | "awaitingHelp" | "helping" | "inEmergency"
+    | "greeting"
+    | "getName"
+    | "getPhone"
+    | "getRole"
+    | "confirmRegistration"
+    | "registered"
+    | "awaitingHelp"
+    | "helping"
+    | "inEmergency"
   >("greeting");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -50,21 +57,27 @@ export function TextChat() {
   }, [messages]);
 
   const addSystemMessage = (text: string) => {
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      text,
-      sender: "system",
-      timestamp: new Date()
-    }]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        text,
+        sender: "system",
+        timestamp: new Date(),
+      },
+    ]);
   };
 
   const addUserMessage = (text: string) => {
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      text,
-      sender: "user",
-      timestamp: new Date()
-    }]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        text,
+        sender: "user",
+        timestamp: new Date(),
+      },
+    ]);
   };
 
   const handleSend = async () => {
@@ -77,19 +90,21 @@ export function TextChat() {
     // Process based on conversation state
     switch (conversationState) {
       case "getName":
-        setUserState(prev => ({ ...prev, name: userInput }));
-        addSystemMessage(`Nice to meet you, ${userInput}! What's your phone number? This will be used to connect you with help or those who need help.`);
+        setUserState((prev) => ({ ...prev, name: userInput }));
+        addSystemMessage(
+          `Nice to meet you, ${userInput}! What's your phone number? This will be used to connect you with help or those who need help.`
+        );
         setConversationState("getPhone");
         break;
 
       case "getPhone":
-        setUserState(prev => ({ ...prev, phone: userInput }));
+        setUserState((prev) => ({ ...prev, phone: userInput }));
         addSystemMessage(
           `Thank you! Now, I need to understand your situation. Are you:\n` +
-          `1. Someone who needs help (victim of a disaster)\n` +
-          `2. Someone who can provide help (responder)\n` +
-          `3. An administrator\n\n` +
-          `Please type 1, 2, or 3, or describe your situation.`
+            `1. Someone who needs help (victim of a disaster)\n` +
+            `2. Someone who can provide help (responder)\n` +
+            `3. An administrator\n\n` +
+            `Please type 1, 2, or 3, or describe your situation.`
         );
         setConversationState("getRole");
         break;
@@ -98,34 +113,49 @@ export function TextChat() {
         let role: "Victim" | "Responder" | "Admin" | undefined;
         const lowerInput = userInput.toLowerCase();
 
-        if (lowerInput === "1" || lowerInput.includes("need help") || lowerInput.includes("victim") ||
-            lowerInput.includes("emergency") || lowerInput.includes("stuck") || lowerInput.includes("stranded")) {
+        if (
+          lowerInput === "1" ||
+          lowerInput.includes("need help") ||
+          lowerInput.includes("victim") ||
+          lowerInput.includes("emergency") ||
+          lowerInput.includes("stuck") ||
+          lowerInput.includes("stranded")
+        ) {
           role = "Victim";
-        } else if (lowerInput === "2" || lowerInput.includes("can help") || lowerInput.includes("responder") ||
-                   lowerInput.includes("volunteer") || lowerInput.includes("assist")) {
+        } else if (
+          lowerInput === "2" ||
+          lowerInput.includes("can help") ||
+          lowerInput.includes("responder") ||
+          lowerInput.includes("volunteer") ||
+          lowerInput.includes("assist")
+        ) {
           role = "Responder";
         } else if (lowerInput === "3" || lowerInput.includes("admin")) {
           role = "Admin";
         }
 
         if (role) {
-          setUserState(prev => ({ ...prev, role }));
-          const roleText = role === "Victim" ? "someone who needs help" :
-                          role === "Responder" ? "a responder who can help others" : "an administrator";
+          setUserState((prev) => ({ ...prev, role }));
+          const roleText =
+            role === "Victim"
+              ? "someone who needs help"
+              : role === "Responder"
+              ? "a responder who can help others"
+              : "an administrator";
           addSystemMessage(
             `I understand you're ${roleText}. Let me register you in the system.\n\n` +
-            `Name: ${userState.name}\n` +
-            `Phone: ${userState.phone}\n` +
-            `Role: ${roleText}\n\n` +
-            `Is this correct? (yes/no)`
+              `Name: ${userState.name}\n` +
+              `Phone: ${userState.phone}\n` +
+              `Role: ${roleText}\n\n` +
+              `Is this correct? (yes/no)`
           );
           setConversationState("confirmRegistration");
         } else {
           addSystemMessage(
             "I didn't quite understand. Please type:\n" +
-            "1 if you need help\n" +
-            "2 if you can provide help\n" +
-            "3 if you're an administrator"
+              "1 if you need help\n" +
+              "2 if you can provide help\n" +
+              "3 if you're an administrator"
           );
         }
         break;
@@ -139,11 +169,11 @@ export function TextChat() {
                 name: userState.name!,
                 phone: userState.phone!,
                 role: userState.role!,
-              }
+              },
             });
 
             if (result.data) {
-              setUserState(prev => ({ ...prev, id: result.data.id }));
+              setUserState((prev) => ({ ...prev, id: result.data.id }));
               localStorage.setItem("hermesUserId", result.data.id);
               localStorage.setItem("hermesUserRole", userState.role!);
               localStorage.setItem("hermesUserName", userState.name!);
@@ -151,23 +181,27 @@ export function TextChat() {
               if (userState.role === "Victim") {
                 addSystemMessage(
                   "You're now registered! If you have an emergency, please describe your situation. " +
-                  "For example: 'Out of fuel on Highway 95' or 'Need medical help, injured leg'. " +
-                  "I'll connect you with someone who can help."
+                    "For example: 'Out of fuel on Highway 95' or 'Need medical help, injured leg'. " +
+                    "I'll connect you with someone who can help."
                 );
                 setConversationState("registered");
               } else if (userState.role === "Responder") {
                 addSystemMessage(
                   "Thank you for volunteering to help! I'll show you any emergency cases that need assistance. " +
-                  "Type 'check' to see if anyone needs help, or wait for notifications."
+                    "Type 'check' to see if anyone needs help, or wait for notifications."
                 );
                 setConversationState("registered");
               } else {
-                addSystemMessage("You're registered as an administrator. Type 'status' to see system status.");
+                addSystemMessage(
+                  "You're registered as an administrator. Type 'status' to see system status."
+                );
                 setConversationState("registered");
               }
             }
           } catch (error) {
-            addSystemMessage("There was an error registering you. Please try again or refresh the page.");
+            addSystemMessage(
+              "There was an error registering you. Please try again or refresh the page."
+            );
           }
         } else {
           addSystemMessage("Let's start over. What's your name?");
@@ -189,54 +223,79 @@ export function TextChat() {
 
     if (userState.role === "Victim") {
       // Check if this is an emergency message
-      const emergencyKeywords = ["help", "emergency", "stuck", "stranded", "fuel", "injured", "hurt",
-                                "cold", "freezing", "hungry", "thirsty", "trapped", "lost"];
+      const emergencyKeywords = [
+        "help",
+        "emergency",
+        "stuck",
+        "stranded",
+        "fuel",
+        "injured",
+        "hurt",
+        "cold",
+        "freezing",
+        "hungry",
+        "thirsty",
+        "trapped",
+        "lost",
+      ];
 
-      if (emergencyKeywords.some(keyword => lowerInput.includes(keyword))) {
+      if (emergencyKeywords.some((keyword) => lowerInput.includes(keyword))) {
         try {
-          addSystemMessage("I understand this is an emergency. Let me create an emergency case for you...");
+          addSystemMessage(
+            "I understand this is an emergency. Let me create an emergency case for you..."
+          );
 
-          const result = await createEmergency.mutateAsync({
-            data: {
-              message: input,
+          const result = await createEmergency.mutateAsync(
+            {
+              data: {
+                message: input,
+              },
+            },
+            {
+              //@ts-ignore
+              request: {
+                headers: {
+                  "X-User-Id": userState.id!,
+                },
+              },
             }
-          }, {
-            request: {
-              headers: {
-                "X-User-Id": userState.id!,
-              }
-            }
-          });
+          );
 
           if (result.data) {
-            setUserState(prev => ({ ...prev, currentCase: result.data.id }));
+            setUserState((prev) => ({ ...prev, currentCase: result.data.id }));
             addSystemMessage(
               `Emergency case created!\n` +
-              `Category: ${result.data.category?.replace('_', ' ')}\n` +
-              `Severity: ${result.data.severity}/5\n` +
-              `Status: ${result.data.status}\n\n` +
-              `I'm broadcasting your emergency to nearby helpers. Someone should respond soon. ` +
-              `You can type messages here and they'll be shared with your helper when they arrive.`
+                `Category: ${result.data.category?.replace("_", " ")}\n` +
+                `Severity: ${result.data.severity}/5\n` +
+                `Status: ${result.data.status}\n\n` +
+                `I'm broadcasting your emergency to nearby helpers. Someone should respond soon. ` +
+                `You can type messages here and they'll be shared with your helper when they arrive.`
             );
             setConversationState("awaitingHelp");
           }
         } catch (error) {
-          addSystemMessage("I couldn't create the emergency case. Please try describing your emergency again.");
+          addSystemMessage(
+            "I couldn't create the emergency case. Please try describing your emergency again."
+          );
         }
       } else {
         addSystemMessage(
           "I'm here to help with emergencies. If you need help, please describe your emergency situation. " +
-          "For example: 'Out of fuel', 'Injured and need medical help', 'Stranded in blizzard'."
+            "For example: 'Out of fuel', 'Injured and need medical help', 'Stranded in blizzard'."
         );
       }
     } else if (userState.role === "Responder") {
-      if (lowerInput.includes("check") || lowerInput.includes("help") || lowerInput.includes("cases")) {
+      if (
+        lowerInput.includes("check") ||
+        lowerInput.includes("help") ||
+        lowerInput.includes("cases")
+      ) {
         try {
           // Fetch cases directly using the API
-          const response = await fetch('/api/cases?role=Responder', {
+          const response = await fetch("/api/cases?role=Responder", {
             headers: {
-              'X-User-Id': userState.id!,
-            }
+              "X-User-Id": userState.id!,
+            },
           });
 
           if (response.ok) {
@@ -245,16 +304,20 @@ export function TextChat() {
             if (cases && cases.length > 0) {
               let caseList = "Here are the current emergency cases:\n\n";
               cases.forEach((c: any, index: number) => {
-                caseList += `${index + 1}. ${c.title || c.category} - ${c.summary}\n`;
+                caseList += `${index + 1}. ${c.title || c.category} - ${
+                  c.summary
+                }\n`;
                 caseList += `   Severity: ${c.severity}/5, Status: ${c.status}\n\n`;
               });
               caseList += "Type the number of the case you want to help with.";
               addSystemMessage(caseList);
 
               // Store cases in state for reference
-              setUserState(prev => ({ ...prev, availableCases: cases }));
+              setUserState((prev) => ({ ...prev, availableCases: cases }));
             } else {
-              addSystemMessage("No emergency cases at the moment. I'll notify you when someone needs help.");
+              addSystemMessage(
+                "No emergency cases at the moment. I'll notify you when someone needs help."
+              );
             }
           } else {
             addSystemMessage("Couldn't fetch cases. Please try again.");
@@ -267,31 +330,39 @@ export function TextChat() {
         if (caseIndex >= 0 && caseIndex < userState.availableCases.length) {
           const selectedCase = userState.availableCases[caseIndex];
           try {
-            await respondToCase.mutateAsync({
-              caseId: selectedCase.id,
-              data: {
-                message: "I can help with this emergency",
+            await respondToCase.mutateAsync(
+              {
+                caseId: selectedCase.id,
+                data: {
+                  message: "I can help with this emergency",
+                },
+              },
+              {
+                //@ts-ignore
+                request: {
+                  headers: {
+                    "X-User-Id": userState.id!,
+                  },
+                },
               }
-            }, {
-              request: {
-                headers: {
-                  "X-User-Id": userState.id!,
-                }
-              }
-            });
+            );
 
-            setUserState(prev => ({ ...prev, currentCase: selectedCase.id }));
+            setUserState((prev) => ({ ...prev, currentCase: selectedCase.id }));
             addSystemMessage(
               `You're now responding to: ${selectedCase.summary}\n\n` +
-              `You can communicate with the person in need through this chat. ` +
-              `Type your messages here to coordinate assistance.`
+                `You can communicate with the person in need through this chat. ` +
+                `Type your messages here to coordinate assistance.`
             );
             setConversationState("helping");
           } catch (error) {
-            addSystemMessage("Couldn't assign you to this case. Please try again.");
+            addSystemMessage(
+              "Couldn't assign you to this case. Please try again."
+            );
           }
         } else {
-          addSystemMessage("Invalid case number. Please type 'check' to see available cases.");
+          addSystemMessage(
+            "Invalid case number. Please type 'check' to see available cases."
+          );
         }
       } else {
         addSystemMessage("Type 'check' to see emergency cases that need help.");
@@ -300,7 +371,7 @@ export function TextChat() {
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
@@ -316,17 +387,20 @@ export function TextChat() {
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${
+                msg.sender === "user" ? "justify-end" : "justify-start"
+              }`}
             >
               <div
                 className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                  msg.sender === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted'
+                  msg.sender === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted"
                 }`}
               >
                 <div className="text-xs opacity-70 mb-1">
-                  {msg.sender === 'user' ? 'You' : 'System'} • {msg.timestamp.toLocaleTimeString()}
+                  {msg.sender === "user" ? "You" : "System"} •{" "}
+                  {msg.timestamp.toLocaleTimeString()}
                 </div>
                 <div className="whitespace-pre-wrap">{msg.text}</div>
               </div>

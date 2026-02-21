@@ -1,0 +1,57 @@
+# Run frontend build on PRs. Failing this check blocks merge when branch protection requires it.
+
+name: Frontend build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - "api/openapi.json"
+      - "api/index.py"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/frontend-build.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Setup Python (for OpenAPI export)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install API dependencies
+        run: pip install -r api/requirements.txt
+
+      - name: Export OpenAPI schema
+        env:
+          SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_POSTGRES_URL: postgresql://placeholder
+          TWILIO_ACCOUNT_SID: placeholder
+          TWILIO_AUTH_TOKEN: placeholder
+          TWILIO_FROM_NUMBER: "+0000000000"
+          WORKFLOW_WEBHOOK_URL: https://placeholder/twilio/webhooks/sms
+          GOOGLE_API_KEY: placeholder
+          GOOGLE_MAPS_API_KEY: placeholder
+        run: |
+          cd api && python export_openapi.py && cd ..
+
+      - name: Install UI dependencies
+        run: npm ci --prefix ui
+
+      - name: Build frontend
+        run: npm run build --prefix ui

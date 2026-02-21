@@ -15,7 +15,10 @@ interface EmergencyDialogProps {
   onEmergencyCreated: (caseId: string) => void;
 }
 
-export function EmergencyDialog({ userId, onEmergencyCreated }: EmergencyDialogProps) {
+export function EmergencyDialog({
+  userId,
+  onEmergencyCreated,
+}: EmergencyDialogProps) {
   const [message, setMessage] = useState("");
   const [location, setLocation] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -32,9 +35,13 @@ export function EmergencyDialog({ userId, onEmergencyCreated }: EmergencyDialogP
 
       if (navigator.geolocation) {
         try {
-          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
-          });
+          const position = await new Promise<GeolocationPosition>(
+            (resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                timeout: 5000,
+              });
+            }
+          );
           latitude = position.coords.latitude;
           longitude = position.coords.longitude;
         } catch (err) {
@@ -42,20 +49,24 @@ export function EmergencyDialog({ userId, onEmergencyCreated }: EmergencyDialogP
         }
       }
 
-      const result = await createEmergency.mutateAsync({
-        data: {
-          message,
-          location: location || undefined,
-          latitude,
-          longitude,
+      const result = await createEmergency.mutateAsync(
+        {
+          data: {
+            message,
+            location: location || undefined,
+            latitude,
+            longitude,
+          },
+        },
+        {
+          //@ts-ignore
+          request: {
+            headers: {
+              "X-User-Id": userId,
+            },
+          },
         }
-      }, {
-        request: {
-          headers: {
-            "X-User-Id": userId,
-          }
-        }
-      });
+      );
 
       if (result.data) {
         onEmergencyCreated(result.data.id);

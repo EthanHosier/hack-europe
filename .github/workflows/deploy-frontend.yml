@@ -34,7 +34,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Setup Python (for OpenAPI export)
@@ -58,6 +58,8 @@ jobs:
           TWILIO_AUTH_TOKEN: placeholder
           TWILIO_FROM_NUMBER: "+0000000000"
           WORKFLOW_WEBHOOK_URL: https://placeholder/twilio/webhooks/sms
+          GOOGLE_API_KEY: placeholder
+          GOOGLE_MAPS_API_KEY: placeholder
         run: |
           cd api && python export_openapi.py && cd ..
 

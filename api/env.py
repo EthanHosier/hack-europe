@@ -14,6 +14,11 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER")
 WORKFLOW_WEBHOOK_URL = os.environ.get("WORKFLOW_WEBHOOK_URL")
+# Optional: Google APIs (Gemini, Maps). CI may run without them (e.g. OpenAPI export).
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
+if GOOGLE_API_KEY is not None:
+    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
 if not SUPABASE_URL:
     raise RuntimeError("SUPABASE_URL is required; set it in .env at project root")
