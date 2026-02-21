@@ -13,6 +13,12 @@ from starlette.websockets import WebSocketDisconnect
 
 import env
 from elevenlabs import text_to_speech as elevenlabs_tts
+from voice_agent import VoiceAgent
+
+import psycopg
+from agent import EmergencyAgent
+
+_voice_agent = VoiceAgent()
 
 webhook_logger = logging.getLogger("uvicorn.error")
 
@@ -157,6 +163,7 @@ async def handle_voice_media_stream(websocket: WebSocket) -> None:
     media_chunk_count = 0
     already_logged_2s_silence = False
     utterance_buffer: list[str] = []
+    conversation_history: list[dict[str, str]] = []
 
     try:
         while True:
@@ -195,23 +202,6 @@ async def handle_voice_media_stream(websocket: WebSocket) -> None:
                 media_chunk_count += 1
                 rms = _mulaw_payload_rms(payload)
                 silent = rms < AUDIO_SILENCE_THRESHOLD
-                # Log sound/silence transitions (not every chunk)
-                if last_chunk_was_silent is False and silent:
-                    webhook_logger.info(
-                        "voice_ws_silence_detected stream_sid=%s call_sid=%s rms=%.0f threshold=%s",
-                        stream_sid,
-                        call_sid,
-                        rms,
-                        AUDIO_SILENCE_THRESHOLD,
-                    )
-                elif last_chunk_was_silent is True and not silent:
-                    webhook_logger.info(
-                        "voice_ws_sound_detected stream_sid=%s call_sid=%s rms=%.0f threshold=%s",
-                        stream_sid,
-                        call_sid,
-                        rms,
-                        AUDIO_SILENCE_THRESHOLD,
-                    )
                 last_chunk_was_silent = silent
                 # Periodic RMS at DEBUG for tuning
                 if media_chunk_count % 50 == 0:
@@ -248,9 +238,51 @@ async def handle_voice_media_stream(websocket: WebSocket) -> None:
                                         transcript,
                                     )
                                     if transcript:
-                                        asyncio.create_task(
-                                            _send_tts_to_call(websocket, stream_sid, transcript)
-                                        )
+                                        loop = asyncio.get_event_loop()
+                                        try:
+                                            response_text, info, should_end_call = await loop.run_in_executor(
+                                                None,
+                                                lambda: _voice_agent.process_utterance(
+                                                    transcript, conversation_history
+                                                ),
+                                            )
+                                        except Exception:
+                                            webhook_logger.exception(
+                                                "voice_ws_agent_error stream_sid=%s", stream_sid
+                                            )
+                                            response_text = "I'm sorry, I had a small problem. Please try again."
+                                            should_end_call = False
+                                            info = None
+                                        conversation_history.append({"role": "user", "content": transcript})
+                                        conversation_history.append({"role": "assistant", "content": response_text})
+                                        if should_end_call and info and call_sid:
+                                            try:
+                                                emergency_agent = EmergencyAgent(env.SUPABASE_URL)
+                                                with psycopg.connect(env.SUPABASE_POSTGRES_URL) as conn:
+                                                    case_id = emergency_agent.create_case(
+                                                        info, f"voice-{call_sid}", conn
+                                                    )
+                                                    webhook_logger.info(
+                                                        "voice_ws_case_created stream_sid=%s case_id=%s",
+                                                        stream_sid,
+                                                        case_id,
+                                                    )
+                                            except Exception:
+                                                webhook_logger.exception(
+                                                    "voice_ws_case_create_error stream_sid=%s",
+                                                    stream_sid,
+                                                )
+                                        if response_text:
+                                            if should_end_call:
+                                                await _send_tts_to_call(
+                                                    websocket, stream_sid, response_text
+                                                )
+                                                break
+                                            asyncio.create_task(
+                                                _send_tts_to_call(
+                                                    websocket, stream_sid, response_text
+                                                )
+                                            )
                                 else:
                                     webhook_logger.info(
                                         "voice_ws_whisper_transcription stream_sid=%s call_sid=%s text=(none)",
