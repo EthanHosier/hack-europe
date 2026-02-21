@@ -72,3 +72,13 @@ output "cloudfront_url" {
   description = "HTTPS URL of the CloudFront distribution"
   value       = "https://${aws_cloudfront_distribution.main.domain_name}"
 }
+
+output "frontend_url" {
+  description = "HTTPS URL where the frontend (S3) is served (same origin as CloudFront; /api* goes to backend)"
+  value       = "https://${aws_cloudfront_distribution.main.domain_name}"
+}
+
+output "frontend_bucket_name" {
+  description = "S3 bucket for frontend static files (upload ui/dist here)"
+  value       = aws_s3_bucket.frontend.id
+}
