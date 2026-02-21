@@ -6,6 +6,8 @@ name: Deploy API to ECS
 on:
   push:
     branches: [main]
+    paths:
+      - "api/**"
 
 env:
   AWS_REGION: us-west-2
@@ -40,7 +42,7 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
         run: |
-          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker build --platform linux/amd64 -f api/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:latest api
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
       - name: Force ECS service deployment
