@@ -1,12 +1,4 @@
-import {
-  AlertTriangle,
-  Flame,
-  Heart,
-  Home,
-  Users,
-  Zap,
-  Clock,
-} from "lucide-react";
+import { AlertTriangle, Flame, Heart, Home, Zap, Clock } from "lucide-react";
 
 export interface Incident {
   id: string;

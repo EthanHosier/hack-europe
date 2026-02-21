@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { Incident } from "./IncidentQueue";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
@@ -246,9 +246,9 @@ export function MapView({
           {/* Incident markers and clusters */}
           {clusters.map((cluster, index) => {
             const isMultiple = cluster.incidents.length > 1;
-            const hasSelected = cluster.incidents.some(
-              (i) => i.id === selectedId,
-            );
+            // const hasSelected = cluster.incidents.some(
+            //   (i) => i.id === selectedId,
+            // );
 
             if (isMultiple) {
               // Cluster marker
