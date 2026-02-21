@@ -1,7 +1,7 @@
 {
   "version": 4,
   "terraform_version": "1.12.2",
-  "serial": 59,
+  "serial": 53,
   "lineage": "202efd3a-79e1-fdb0-bbb8-e11d6a38403a",
   "outputs": {
     "alb_dns_name": {
@@ -204,7 +204,7 @@
                 "lambda_function_association": [],
                 "max_ttl": 0,
                 "min_ttl": 0,
-                "origin_request_policy_id": "88a5eaf4-2fd4-4709-b370-b4c650ea3fcf",
+                "origin_request_policy_id": "22007d8d-2905-4fbd-b1a9-4afa42d29c20",
                 "realtime_log_config_arn": "",
                 "response_headers_policy_id": "",
                 "smooth_streaming": false,
@@ -217,101 +217,15 @@
             "default_root_object": "index.html",
             "domain_name": "d1721eha86twak.cloudfront.net",
             "enabled": true,
-            "etag": "E2EUQ1WTGCTBG2",
+            "etag": "E13V1IB3VIYZZH",
             "hosted_zone_id": "Z2FDTNDATAQYW2",
             "http_version": "http2",
             "id": "E3OIQWPC9QA1EB",
             "in_progress_validation_batches": 0,
             "is_ipv6_enabled": true,
-            "last_modified_time": "2026-02-21 17:28:27.93 +0000 UTC",
+            "last_modified_time": "2026-02-21 16:47:03.242 +0000 UTC",
             "logging_config": [],
             "ordered_cache_behavior": [
-              {
-                "allowed_methods": [
-                  "DELETE",
-                  "GET",
-                  "HEAD",
-                  "OPTIONS",
-                  "PATCH",
-                  "POST",
-                  "PUT"
-                ],
-                "cache_policy_id": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
-                "cached_methods": [
-                  "GET",
-                  "HEAD"
-                ],
-                "compress": true,
-                "default_ttl": 0,
-                "field_level_encryption_id": "",
-                "forwarded_values": [],
-                "function_association": [
-                  {
-                    "event_type": "viewer-request",
-                    "function_arn": "arn:aws:cloudfront::296410404869:function/hack-europe-api-strip-prefix"
-                  }
-                ],
-                "grpc_config": [
-                  {
-                    "enabled": false
-                  }
-                ],
-                "lambda_function_association": [],
-                "max_ttl": 0,
-                "min_ttl": 0,
-                "origin_request_policy_id": "216adef6-5c7f-47e4-b989-5492eafa07d3",
-                "path_pattern": "/api",
-                "realtime_log_config_arn": "",
-                "response_headers_policy_id": "",
-                "smooth_streaming": false,
-                "target_origin_id": "hack-europe-alb",
-                "trusted_key_groups": [],
-                "trusted_signers": [],
-                "viewer_protocol_policy": "redirect-to-https"
-              },
-              {
-                "allowed_methods": [
-                  "DELETE",
-                  "GET",
-                  "HEAD",
-                  "OPTIONS",
-                  "PATCH",
-                  "POST",
-                  "PUT"
-                ],
-                "cache_policy_id": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
-                "cached_methods": [
-                  "GET",
-                  "HEAD"
-                ],
-                "compress": true,
-                "default_ttl": 0,
-                "field_level_encryption_id": "",
-                "forwarded_values": [],
-                "function_association": [
-                  {
-                    "event_type": "viewer-request",
-                    "function_arn": "arn:aws:cloudfront::296410404869:function/hack-europe-api-strip-prefix"
-                  }
-                ],
-                "grpc_config": [
-                  {
-                    "enabled": false
-                  }
-                ],
-                "lambda_function_association": [],
-                "max_ttl": 0,
-                "min_ttl": 0,
-                "origin_request_policy_id": "216adef6-5c7f-47e4-b989-5492eafa07d3",
-                "path_pattern": "/api/",
-                "realtime_log_config_arn": "",
-                "response_headers_policy_id": "",
-                "smooth_streaming": false,
-                "target_origin_id": "hack-europe-alb",
-                "trusted_key_groups": null,
-                "trusted_signers": null,
-                "viewer_protocol_policy": "redirect-to-https"
-              },
               {
                 "allowed_methods": [
                   "DELETE",
@@ -351,8 +265,8 @@
                 "response_headers_policy_id": "",
                 "smooth_streaming": false,
                 "target_origin_id": "hack-europe-alb",
-                "trusted_key_groups": null,
-                "trusted_signers": null,
+                "trusted_key_groups": [],
+                "trusted_signers": [],
                 "viewer_protocol_policy": "redirect-to-https"
               }
             ],
@@ -448,6 +362,7 @@
             "aws_cloudfront_function.api_strip_prefix",
             "aws_cloudfront_function.spa_rewrite",
             "aws_cloudfront_origin_access_control.frontend",
+            "aws_cloudfront_origin_request_policy.frontend_all_viewer",
             "aws_lb.main",
             "aws_s3_bucket.frontend",
             "aws_security_group.alb",
@@ -530,6 +445,45 @@
             "origin_access_control_origin_type": "s3",
             "signing_behavior": "always",
             "signing_protocol": "sigv4"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "private": "bnVsbA=="
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_cloudfront_origin_request_policy",
+      "name": "frontend_all_viewer",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:cloudfront::296410404869:origin-request-policy/22007d8d-2905-4fbd-b1a9-4afa42d29c20",
+            "comment": "Forward all viewer headers/cookies/query strings to S3 origin",
+            "cookies_config": [
+              {
+                "cookie_behavior": "all",
+                "cookies": []
+              }
+            ],
+            "etag": "E23ZP02F085DFQ",
+            "headers_config": [
+              {
+                "header_behavior": "allViewer",
+                "headers": []
+              }
+            ],
+            "id": "22007d8d-2905-4fbd-b1a9-4afa42d29c20",
+            "name": "hack-europe-frontend-all-viewer",
+            "query_strings_config": [
+              {
+                "query_string_behavior": "all",
+                "query_strings": []
+              }
+            ]
           },
           "sensitive_attributes": [],
           "identity_schema_version": 0,

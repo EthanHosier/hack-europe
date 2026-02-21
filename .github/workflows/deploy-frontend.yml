@@ -1,0 +1,120 @@
+# Build frontend (Vite/React), upload to S3, invalidate CloudFront.
+# Same AWS secrets as API deploy: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.
+# Permissions: s3:PutObject, s3:DeleteObject on frontend bucket; cloudfront:CreateInvalidation.
+# Bucket and distribution ID must match Terraform (infra): frontend_bucket_name, cloudfront_distribution_id.
+
+name: Deploy Frontend to S3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - "api/openapi.json"
+      - "api/index.py"
+      - "package.json"
+      - "package-lock.json"
+
+env:
+  AWS_REGION: us-west-2
+  FRONTEND_BUCKET: hack-europe-frontend
+  CLOUDFRONT_DISTRIBUTION_ID: E3OIQWPC9QA1EB
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Python (for OpenAPI export)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install API dependencies
+        run: pip install -r api/requirements.txt
+
+      - name: Export OpenAPI schema
+        # Placeholders only: export_openapi.py imports the app, and env.py requires these to be set.
+        # No real requests are made; we only dump the OpenAPI JSON.
+        env:
+          SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_POSTGRES_URL: postgresql://placeholder
+          TWILIO_ACCOUNT_SID: placeholder
+          TWILIO_AUTH_TOKEN: placeholder
+          TWILIO_FROM_NUMBER: "+0000000000"
+          WORKFLOW_WEBHOOK_URL: https://placeholder/twilio/webhooks/sms
+        run: |
+          cd api && python export_openapi.py && cd ..
+
+      - name: Install UI dependencies
+        run: npm ci --prefix ui
+
+      - name: Build frontend
+        run: npm run build --prefix ui
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync ui/dist s3://$FRONTEND_BUCKET/ --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "index.html"
+          aws s3 cp ui/dist/index.html s3://$FRONTEND_BUCKET/index.html \
+            --cache-control "public, max-age=0, must-revalidate"
+
+      - name: Invalidate CloudFront
+        id: invalidate
+        run: |
+          INV_ID=$(aws cloudfront create-invalidation \
+            --distribution-id $CLOUDFRONT_DISTRIBUTION_ID \
+            --paths "/*" \
+            --query 'Invalidation.Id' \
+            --output text)
+          echo "invalidation-id=$INV_ID" >> $GITHUB_OUTPUT
+          echo "Invalidation created: $INV_ID"
+
+      - name: Wait for invalidation to complete
+        run: |
+          INV_ID="${{ steps.invalidate.outputs.invalidation-id }}"
+          echo "Polling until invalidation $INV_ID completes..."
+          for i in $(seq 1 60); do
+            STATUS=$(aws cloudfront get-invalidation \
+              --distribution-id $CLOUDFRONT_DISTRIBUTION_ID \
+              --id "$INV_ID" \
+              --query 'Invalidation.Status' \
+              --output text)
+            echo "Status: $STATUS (attempt $i/60)"
+            if [ "$STATUS" = "Completed" ]; then
+              echo "✅ Invalidation completed."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "⚠️ Invalidation did not complete within 10 minutes; continuing anyway."
+          exit 0
+
+      - name: Deployment success
+        if: success()
+        run: |
+          echo "✅ Frontend deployed to S3; CloudFront cache invalidated."
+          echo "Use your CloudFront URL (e.g. from infra: terraform output cloudfront_url)"
