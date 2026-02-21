@@ -113,6 +113,15 @@ The script uses `SUPABASE_POSTGRES_URL` from the root `.env`, applies any new `.
   - triggers workflow handoff stub (`api/workflow_bridge.py`)
   - returns TwiML success response
 
+#### Inspect inbound webhook logs
+
+- Run `npm run dev` and watch the API terminal output.
+- The webhook logs:
+  - request metadata (`method`, `url`)
+  - inbound headers and payload body
+  - signature validation failures
+  - persistence and workflow forwarding outcomes
+
 ### Outbound send (App -> Twilio)
 
 - `POST /messages/send`

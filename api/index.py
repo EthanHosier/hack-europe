@@ -1,3 +1,5 @@
+import json
+import logging
 from typing import Any
 
 import psycopg
@@ -12,6 +14,7 @@ from twilio_service import TwilioConfigError, send_sms, validate_twilio_signatur
 from workflow_bridge import build_inbound_event, handle_inbound_message
 
 app = FastAPI(title="HackEurope API")
+webhook_logger = logging.getLogger("uvicorn.error")
 
 app.add_middleware(
     CORSMiddleware,
@@ -146,51 +149,103 @@ def db_health() -> DbHealthResponse:
 
 @app.post("/twilio/webhooks/sms")
 async def twilio_sms_webhook(request: Request) -> Response:
-    form = await request.form()
-    payload = {k: str(v) for k, v in form.items()}
-
-    signature = request.headers.get("X-Twilio-Signature")
-    if not validate_twilio_signature(str(request.url), payload, signature):
-        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
-
-    from_number = payload.get("From", "").strip()
-    to_number = payload.get("To", "").strip()
-    body = payload.get("Body", "").strip()
-    message_sid = payload.get("MessageSid")
-
-    if not from_number or not to_number or not body:
-        raise HTTPException(status_code=400, detail="Missing Twilio message fields")
-
-    message_row_id = persist_text_message(
-        target=from_number,
-        raw_text=body,
-        direction="Inbound",
-        provider_message_sid=message_sid,
-        delivery_status="received",
-    )
-
-    inbound_event = build_inbound_event(
-        from_number=from_number,
-        to_number=to_number,
-        body=body,
-        provider_message_sid=message_sid,
-        raw_payload=payload,
-    )
-    handle_inbound_message(inbound_event)
-
-    case_id = payload.get("CaseId")
-    if case_id:
-        persist_event(
-            case_id=case_id,
-            description=f"Inbound SMS received from {from_number}: {body}",
-            text_message_id=message_row_id,
+    headers = {k: v for k, v in request.headers.items()}
+    payload: dict[str, str] = {}
+    try:
+        form = await request.form()
+        payload = {k: str(v) for k, v in form.items()}
+        webhook_logger.info(
+            "twilio_sms_inbound_received method=%s url=%s headers=%s payload=%s",
+            request.method,
+            str(request.url),
+            json.dumps(headers, ensure_ascii=False),
+            json.dumps(payload, ensure_ascii=False),
         )
 
-    return Response(
-        content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-        media_type="application/xml",
-        status_code=200,
-    )
+        signature = request.headers.get("X-Twilio-Signature")
+        if not validate_twilio_signature(str(request.url), payload, signature):
+            webhook_logger.warning(
+                "twilio_sms_inbound_invalid_signature signature=%s payload=%s",
+                signature,
+                json.dumps(payload, ensure_ascii=False),
+            )
+            raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
+        from_number = payload.get("From", "").strip()
+        to_number = payload.get("To", "").strip()
+        body = payload.get("Body", "").strip()
+        message_sid = payload.get("MessageSid")
+
+        if not from_number or not to_number or not body:
+            webhook_logger.warning(
+                "twilio_sms_inbound_missing_fields payload=%s",
+                json.dumps(payload, ensure_ascii=False),
+            )
+            raise HTTPException(status_code=400, detail="Missing Twilio message fields")
+
+        message_row_id = persist_text_message(
+            target=from_number,
+            raw_text=body,
+            direction="Inbound",
+            provider_message_sid=message_sid,
+            delivery_status="received",
+        )
+        webhook_logger.info(
+            "twilio_sms_inbound_persisted message_row_id=%s message_sid=%s from_number=%s to_number=%s",
+            message_row_id,
+            message_sid,
+            from_number,
+            to_number,
+        )
+
+        inbound_event = build_inbound_event(
+            from_number=from_number,
+            to_number=to_number,
+            body=body,
+            provider_message_sid=message_sid,
+            raw_payload=payload,
+        )
+        workflow_result = handle_inbound_message(inbound_event)
+        webhook_logger.info(
+            "twilio_sms_inbound_workflow_result message_sid=%s workflow_result=%s",
+            message_sid,
+            json.dumps(workflow_result, ensure_ascii=False),
+        )
+
+        case_id = payload.get("CaseId")
+        if case_id:
+            persist_event(
+                case_id=case_id,
+                description=f"Inbound SMS received from {from_number}: {body}",
+                text_message_id=message_row_id,
+            )
+            webhook_logger.info(
+                "twilio_sms_inbound_event_persisted case_id=%s text_message_id=%s",
+                case_id,
+                message_row_id,
+            )
+
+        webhook_logger.info("twilio_sms_inbound_processed message_sid=%s", message_sid)
+        return Response(
+            content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+            media_type="application/xml",
+            status_code=200,
+        )
+    except HTTPException as exc:
+        webhook_logger.warning(
+            "twilio_sms_inbound_http_error status_code=%s detail=%s payload=%s",
+            exc.status_code,
+            exc.detail,
+            json.dumps(payload, ensure_ascii=False),
+        )
+        raise
+    except Exception:
+        webhook_logger.exception(
+            "twilio_sms_inbound_failed headers=%s payload=%s",
+            json.dumps(headers, ensure_ascii=False),
+            json.dumps(payload, ensure_ascii=False),
+        )
+        raise
 
 
 @app.post("/messages/send", response_model=SendSmsResponse)
