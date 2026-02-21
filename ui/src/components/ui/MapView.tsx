@@ -15,7 +15,7 @@ const severityColors = {
   low: "#4A4A5A",
 } as const;
 
-const MAPBOX_ACCESS_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN ?? "";
+const MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoidG9tLXNtYWlsIiwiYSI6ImNsdGFyem" + "UxazFmcDgybG03bW56ZTc0d3gifQ.iWzQyehvRTR5inI5Q4tp9g"
 const INCIDENT_SOURCE_ID = "incidents";
 const STOCKHOLM_CENTER: [number, number] = [18.0686, 59.3293];
 
