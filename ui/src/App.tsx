@@ -18,7 +18,7 @@ function App() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-svh gap-4 p-4">
-      <h1 className="text-2xl font-semibold">HackEurope</h1>
+      <h1 className="text-2xl font-semibold">HackEurope!</h1>
       <Button onClick={() => refetch()}>Click me</Button>
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
       {error ? (

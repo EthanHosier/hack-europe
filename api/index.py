@@ -32,7 +32,7 @@ class DbHealthResponse(BaseModel):
 
 @app.get("/", response_model=RootResponse)
 def read_root() -> RootResponse:
-    return RootResponse(Python="on Vercel", message="Hello from FastAPI")
+    return RootResponse(Python="on Vercel", message="Hello from FastAPI!")
 
 
 @app.get("/health", response_model=HealthResponse)
