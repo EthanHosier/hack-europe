@@ -67,6 +67,8 @@ jobs:
         run: npm ci --prefix ui
 
       - name: Build frontend
+        env:
+          VITE_MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
         run: npm run build --prefix ui
 
       - name: Configure AWS credentials
