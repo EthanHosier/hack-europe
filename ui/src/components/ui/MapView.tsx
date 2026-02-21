@@ -58,15 +58,7 @@ function addIncidentLayers(map: mapboxgl.Map, selectedId: string | null) {
         severityColors.moderate,
         severityColors.low,
       ],
-      "circle-radius": [
-        "step",
-        ["get", "point_count"],
-        18,
-        10,
-        22,
-        25,
-        28,
-      ],
+      "circle-radius": ["step", ["get", "point_count"], 18, 10, 22, 25, 28],
       "circle-opacity": 0.9,
       "circle-stroke-width": 1.5,
       "circle-stroke-color": "#0A0E1A",
@@ -242,12 +234,16 @@ export function MapView({
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const incidentGeoJson = useMemo(() => toIncidentGeoJson(incidents), [incidents]);
+  const incidentGeoJson = useMemo(
+    () => toIncidentGeoJson(incidents),
+    [incidents],
+  );
   const [pitch, setPitch] = useState(60);
   const [bearing, setBearing] = useState(-18);
 
   useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current || !MAPBOX_ACCESS_TOKEN) return;
+    if (!mapContainerRef.current || mapRef.current || !MAPBOX_ACCESS_TOKEN)
+      return;
 
     mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
     const map = new mapboxgl.Map({
@@ -300,14 +296,19 @@ export function MapView({
       map.on("click", "incident-clusters", (event) => {
         const feature = event.features?.[0];
         if (!feature) return;
-        const source = map.getSource(INCIDENT_SOURCE_ID) as GeoJSONSource | undefined;
+        const source = map.getSource(INCIDENT_SOURCE_ID) as
+          | GeoJSONSource
+          | undefined;
         const clusterId = feature.properties?.cluster_id;
         if (!source || typeof clusterId !== "number") return;
 
         source.getClusterExpansionZoom(clusterId, (error, zoom) => {
           if (error || typeof zoom !== "number") return;
           const geometry = feature.geometry as GeoJSON.Point;
-          map.easeTo({ center: geometry.coordinates as [number, number], zoom });
+          map.easeTo({
+            center: geometry.coordinates as [number, number],
+            zoom,
+          });
         });
       });
 
@@ -423,7 +424,9 @@ export function MapView({
             max={180}
             step={1}
             value={bearing}
-            onChange={(event) => handleBearingChange(Number(event.target.value))}
+            onChange={(event) =>
+              handleBearingChange(Number(event.target.value))
+            }
             className="w-full accent-[#5b8dbf]"
           />
           <p className="text-[10px] text-[#6b7280] leading-snug">
