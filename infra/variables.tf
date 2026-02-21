@@ -112,4 +112,11 @@ variable "openai_api_key" {
   sensitive   = true
   default     = ""
 }
+
+variable "eleven_labs_api_key" {
+  description = "ElevenLabs API key for TTS (voice reply on calls). Optional; set in terraform.auto.tfvars."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
  
