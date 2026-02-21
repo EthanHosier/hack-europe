@@ -87,4 +87,22 @@ variable "supabase_url" {
   type        = string
   sensitive   = true
 }
+
+variable "twilio_account_sid" {
+  description = "Twilio Account SID (set in terraform.auto.tfvars)"
+  type        = string
+  sensitive   = true
+}
+
+variable "twilio_auth_token" {
+  description = "Twilio Auth Token (set in terraform.auto.tfvars)"
+  type        = string
+  sensitive   = true
+}
+
+variable "twilio_from_number" {
+  description = "Twilio from phone number (set in terraform.auto.tfvars)"
+  type        = string
+  sensitive   = true
+}
  

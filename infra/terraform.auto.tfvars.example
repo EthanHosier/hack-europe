@@ -1,0 +1,9 @@
+# Copy to terraform.auto.tfvars and fill in. That file is auto-loaded by Terraform.
+# Do not commit terraform.auto.tfvars (it's in .gitignore).
+
+supabase_postgres_url = ""
+supabase_url          = ""
+
+twilio_account_sid  = ""
+twilio_auth_token   = ""
+twilio_from_number  = ""
