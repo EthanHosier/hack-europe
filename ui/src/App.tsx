@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
 import { IncidentQueue } from "@/components/ui/IncidentQueue";
-import type { Incident, IncidentQueueHandle } from "@/components/ui/IncidentQueue";
+import type {
+  Incident,
+  IncidentQueueHandle,
+} from "@/components/ui/IncidentQueue";
 import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
@@ -112,7 +114,7 @@ const mockResponders = [
 
 export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
-    null
+    null,
   );
   const { data: liveEventsResponse } = useGetLiveEventsEventsLiveGet(
     { limit: 300 },
@@ -121,12 +123,12 @@ export default function App() {
         refetchInterval: 5000,
         refetchIntervalInBackground: true,
       },
-    }
+    },
   );
   const liveEvents = liveEventsResponse?.data ?? [];
   const incidents = useMemo<Incident[]>(
     () => liveEvents.map(toIncident),
-    [liveEvents]
+    [liveEvents],
   );
   const queueRef = useRef<IncidentQueueHandle>(null);
 
