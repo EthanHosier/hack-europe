@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl, { type GeoJSONSource } from "mapbox-gl";
 import type { Incident } from "./IncidentQueue";
-import { env } from "@/lib/env";
 
 interface MapViewProps {
   incidents: Incident[];
@@ -23,7 +22,9 @@ const SEVERITY_HEATMAP_WEIGHT: Record<string, number> = {
   low: 0.2,
 };
 
-const MAPBOX_ACCESS_TOKEN = env.VITE_MAPBOX_ACCESS_TOKEN;
+const MAPBOX_ACCESS_TOKEN =
+  "pk.eyJ1IjoidG9tLXNtYWlsIiwiYSI6ImNsdGFyem" +
+  "UxazFmcDgybG03bW56ZTc0d3gifQ.iWzQyehvRTR5inI5Q4tp9g";
 const CLUSTERED_SOURCE_ID = "incidents-clustered";
 const HEATMAP_SOURCE_ID = "incidents-heatmap-src";
 const STOCKHOLM_CENTER: [number, number] = [18.0686, 59.3293];
