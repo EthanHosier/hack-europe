@@ -27,10 +27,16 @@ Create a `.env` file at the **project root** (e.g. `cp .env.example .env`) and s
 # .env (at project root)
 SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_POSTGRES_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+
+# Twilio (required for SMS webhook + outbound send API)
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_FROM_NUMBER=...
 ```
 
 - **SUPABASE_URL** — Project URL (API URL).
 - **SUPABASE_POSTGRES_URL** — Direct Postgres connection string (e.g. from Supabase → Settings → Database → Connection string, “URI” / “Transaction” pooler).
+- **TWILIO_ACCOUNT_SID**, **TWILIO_AUTH_TOKEN**, **TWILIO_FROM_NUMBER** — required for SMS webhook verification and outbound delivery.
 
 The API and the migration script (`npm run migrate`) both read from this file. If either variable is missing, the API will fail on startup with a clear error.
 
@@ -89,6 +95,44 @@ The script uses `SUPABASE_POSTGRES_URL` from the root `.env`, applies any new `.
 
 - **API only**: `npm run dev:api` (or `cd api && uvicorn index:app --reload --host 0.0.0.0`)
 - **UI only**: `npm run dev:ui` (or `cd ui && npm run dev`)
+
+## Twilio SMS API contracts
+
+### Inbound webhook (Twilio -> API)
+
+- `POST /twilio/webhooks/sms`
+- Content type: `application/x-www-form-urlencoded`
+- Expected Twilio fields: `From`, `To`, `Body`, `MessageSid`
+- Behavior:
+  - validates `X-Twilio-Signature` when `TWILIO_AUTH_TOKEN` is set
+  - stores message in `text_message` (`source=SMS`, `direction=Inbound`)
+  - triggers workflow handoff stub (`api/workflow_bridge.py`)
+  - returns TwiML success response
+
+### Outbound send (App -> Twilio)
+
+- `POST /messages/send`
+- Content type: `application/json`
+- Request body:
+
+  ```json
+  {
+    "to": "+15551234567",
+    "body": "Fuel assistance requested nearby. Can you help?",
+    "context": {
+      "case_id": "optional-case-uuid"
+    }
+  }
+  ```
+
+- Response body:
+  - `success`, `message_sid`, `status`, `to`, `from_number`, `workflow`
+  - `persistence_error` is populated only if SMS sends but DB logging fails
+
+### AI-agent handoff contract
+
+- Inbound webhook normalizes message data and calls `handle_inbound_message(...)` in `api/workflow_bridge.py`.
+- This is intentionally a no-op contract placeholder so your AI teammate can plug in classification + broadcast logic without changing public API shape.
 
 ## Project layout
 
