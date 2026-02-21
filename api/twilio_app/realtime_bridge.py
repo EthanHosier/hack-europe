@@ -17,6 +17,8 @@ import uuid
 from typing import TYPE_CHECKING
 
 import psycopg
+from geopy.geocoders import GoogleV3
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
 import env
 from agent import EmergencyAgent, EmergencyInfo
@@ -258,8 +260,70 @@ async def run_realtime_bridge(
                     e,
                 )
 
+        def _geocode_location(location_text: str) -> tuple[float | None, float | None, str | None]:
+            """Geocode a location string, returning (lat, lng, maps_url)."""
+            if not location_text:
+                return None, None, None
+            try:
+                geocoder = GoogleV3(api_key=env.GOOGLE_MAPS_API_KEY)
+                result = geocoder.geocode(location_text)
+                if result:
+                    lat, lng = result.latitude, result.longitude
+                    maps_url = f"https://www.google.com/maps?q={lat},{lng}"
+                    webhook_logger.info(
+                        "realtime_geocode stream_sid=%s location=%s lat=%s lng=%s",
+                        stream_sid, location_text, lat, lng,
+                    )
+                    return lat, lng, maps_url
+            except (GeocoderTimedOut, GeocoderServiceError) as e:
+                webhook_logger.warning("realtime_geocode_error stream_sid=%s error=%s", stream_sid, e)
+            except Exception as e:
+                webhook_logger.warning("realtime_geocode_error stream_sid=%s error=%s", stream_sid, e)
+            return None, None, None
+
+        def _create_case_sync(fn_args: str) -> str:
+            """Run geocoding + DB insert synchronously (called via asyncio.to_thread)."""
+            args = json.loads(fn_args)
+            info = EmergencyInfo(
+                full_name=args.get("full_name"),
+                social_security_number=args.get("social_security_number"),
+                location=args.get("location"),
+                emergency_description=args.get("emergency_description"),
+                category=args.get("category", "other"),
+                severity=args.get("severity", 3),
+            )
+
+            lat, lng, maps_url = _geocode_location(info.location)
+            info.latitude = lat
+            info.longitude = lng
+
+            emergency_agent = EmergencyAgent(env.SUPABASE_URL)
+            with psycopg.connect(env.SUPABASE_POSTGRES_URL) as conn:
+                user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"voice-{call_sid}"))
+                case_id = emergency_agent.create_case(info, user_id, conn)
+
+            return json.dumps({
+                "status": "ok",
+                "case_id": case_id,
+                "latitude": lat,
+                "longitude": lng,
+                "maps_url": maps_url,
+            })
+
+        def _fire_and_forget_create_case(fn_args: str) -> None:
+            """Run case creation in a background thread. Never raises to caller."""
+            try:
+                result_msg = _create_case_sync(fn_args)
+                result = json.loads(result_msg)
+                webhook_logger.info(
+                    "realtime_case_created stream_sid=%s case_id=%s maps_url=%s call_sid=%s",
+                    stream_sid, result.get("case_id"), result.get("maps_url"), call_sid,
+                )
+            except Exception:
+                webhook_logger.exception("realtime_case_create_error stream_sid=%s", stream_sid)
+
         async def _handle_tool_call(call_id: str, fn_name: str, fn_args: str) -> None:
-            """Execute tool call, send result back, and trigger a goodbye response."""
+            """Fire off case creation in background, immediately tell the model to say goodbye."""
             webhook_logger.info(
                 "realtime_tool_call stream_sid=%s call_id=%s fn=%s args=%s",
                 stream_sid, call_id, fn_name, fn_args[:200],
@@ -272,33 +336,13 @@ async def run_realtime_bridge(
                 await openai_ws.send(json.dumps({"type": "response.create"}))
                 return
 
-            result_msg = '{"status": "error", "message": "failed to create case"}'
-            try:
-                args = json.loads(fn_args)
-                info = EmergencyInfo(
-                    full_name=args.get("full_name"),
-                    social_security_number=args.get("social_security_number"),
-                    location=args.get("location"),
-                    emergency_description=args.get("emergency_description"),
-                    category=args.get("category", "other"),
-                    severity=args.get("severity", 3),
-                )
-                emergency_agent = EmergencyAgent(env.SUPABASE_URL)
-                with psycopg.connect(env.SUPABASE_POSTGRES_URL) as conn:
-                    user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"voice-{call_sid}"))
-                    case_id = emergency_agent.create_case(info, user_id, conn)
-                result_msg = json.dumps({"status": "ok", "case_id": case_id})
-                webhook_logger.info(
-                    "realtime_case_created stream_sid=%s case_id=%s call_sid=%s",
-                    stream_sid, case_id, call_sid,
-                )
-            except Exception:
-                webhook_logger.exception("realtime_case_create_error stream_sid=%s", stream_sid)
+            # Kick off geocode + DB write in a background thread (non-blocking)
+            asyncio.get_event_loop().run_in_executor(None, _fire_and_forget_create_case, fn_args)
 
-            # Send tool result so the model can confirm + say goodbye
+            # Immediately tell the model the case was created so it says goodbye
             await openai_ws.send(json.dumps({
                 "type": "conversation.item.create",
-                "item": {"type": "function_call_output", "call_id": call_id, "output": result_msg},
+                "item": {"type": "function_call_output", "call_id": call_id, "output": '{"status": "ok"}'},
             }))
             await openai_ws.send(json.dumps({"type": "response.create"}))
 
