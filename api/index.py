@@ -162,15 +162,7 @@ async def twilio_sms_webhook(request: Request) -> Response:
             json.dumps(payload, ensure_ascii=False),
         )
 
-        signature = request.headers.get("x-twilio-signature")
-        if not validate_twilio_signature(str(request.url), payload, signature):
-            webhook_logger.warning(
-                "twilio_sms_inbound_invalid_signature signature=%s payload=%s",
-                signature,
-                json.dumps(payload, ensure_ascii=False),
-            )
-            raise HTTPException(status_code=403, detail="Invalid Twilio signature")
-
+        
         from_number = payload.get("From", "").strip()
         to_number = payload.get("To", "").strip()
         body = payload.get("Body", "").strip()
