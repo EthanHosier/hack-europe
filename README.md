@@ -1,5 +1,12 @@
-# HackEurope
+# Hermes: AI-Powered Operating System for Disaster Response
 
+## The Problem: The Distribution Void
+In the wake of natural and manmade disasters such as blizzards, tsunamis, or wildfires, critical infrastructure is often the first thing to fail. When the internet goes dark, communities are left isolated. While traditional emergency services (911/112) exist, they are frequently overwhelmed or physically unable to reach victims, leaving a massive gap in immediate, life-saving resource distribution.
+
+## The Solution: AI-Orchestrated Resilience
+We are developing a decentralized **Operating System for Disaster Response** that transforms a chaotic crisis into a coordinated ecosystem of resilience. By leveraging the only surviving communication channels like **SMS and Voice**, our platform uses **Ethical AI agents** to orchestrate a peer-to-peer support network, autonomously matching urgent requests for medicine, fuel, or shelter with people who have available resources.
+
+## project structure
 Monorepo: **FastAPI** backend (`api/`) and **React + Vite** frontend (`ui/`), with type-safe API client generation (Orval).
 
 ## Prerequisites
