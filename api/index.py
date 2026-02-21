@@ -16,7 +16,6 @@ from twilio.base.exceptions import TwilioRestException
 
 from env import SUPABASE_POSTGRES_URL
 from twilio_service import TwilioConfigError, send_sms, validate_twilio_signature
-from workflow_bridge import build_inbound_event, handle_inbound_message
 from agent import EmergencyAgent, EmergencyInfo
 
 app = FastAPI(title="HackEurope API")
@@ -356,32 +355,121 @@ async def twilio_sms_webhook(request: Request) -> Response:
             to_number,
         )
 
-        inbound_event = build_inbound_event(
-            from_number=from_number,
-            to_number=to_number,
-            body=body,
-            provider_message_sid=message_sid,
-            raw_payload=payload,
-        )
-        workflow_result = handle_inbound_message(inbound_event)
-        webhook_logger.info(
-            "twilio_sms_inbound_workflow_result message_sid=%s workflow_result=%s",
-            message_sid,
-            json.dumps(workflow_result, ensure_ascii=False),
-        )
+        # Get conversation history for this phone number
+        conversation_history = []
+        try:
+            with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    # Get recent messages from this phone number (limit to last 10 for context)
+                    cur.execute(
+                        """
+                        SELECT raw_text, direction, created_at
+                        FROM text_message
+                        WHERE target = %s
+                        AND created_at < (SELECT created_at FROM text_message WHERE id = %s)
+                        ORDER BY created_at DESC
+                        LIMIT 10
+                        """,
+                        (from_number, message_row_id),
+                    )
+                    messages = cur.fetchall()
 
-        case_id = payload.get("CaseId")
-        if case_id:
-            persist_event(
-                case_id=case_id,
-                description=f"Inbound SMS received from {from_number}: {body}",
-                text_message_id=message_row_id,
+                    # Build conversation history in chronological order
+                    for msg in reversed(messages):  # Reverse to get chronological order
+                        if msg["direction"] == "Inbound":
+                            conversation_history.append({
+                                "role": "user",
+                                "content": msg["raw_text"]
+                            })
+                        else:
+                            conversation_history.append({
+                                "role": "assistant",
+                                "content": msg["raw_text"]
+                            })
+        except Exception as e:
+            webhook_logger.error(f"Failed to get conversation history: {e}")
+
+        # Process message through the AI agent
+        try:
+            agent = EmergencyAgent(SUPABASE_POSTGRES_URL)
+
+            # Generate a UUID for user_id, but use phone number for tracking
+            import uuid
+            user_id = str(uuid.uuid4())
+            # Store the phone number in the metadata or use it for lookup later
+
+            # Process the message
+            response_text, case_id, info = agent.process_message(
+                body, conversation_history, user_id, SUPABASE_POSTGRES_URL
             )
-            webhook_logger.info(
-                "twilio_sms_inbound_event_persisted case_id=%s text_message_id=%s",
-                case_id,
-                message_row_id,
-            )
+
+            # Limit SMS response to 1600 characters (SMS limit)
+            if len(response_text) > 1600:
+                response_text = response_text[:1597] + "..."
+
+            # Send SMS response
+            try:
+                # For testing: you can comment out the actual SMS sending if needed
+                sms_result = send_sms(from_number, response_text)
+
+                # Persist outbound message
+                outbound_msg_id = persist_text_message(
+                    target=from_number,
+                    raw_text=response_text,
+                    direction="Outbound",
+                    provider_message_sid=sms_result.message_sid,
+                    delivery_status=sms_result.status,
+                )
+
+                webhook_logger.info(
+                    "twilio_sms_response_sent message_sid=%s to_number=%s response_length=%s",
+                    sms_result.message_sid,
+                    from_number,
+                    len(response_text),
+                )
+            except Exception as e:
+                webhook_logger.error(f"Failed to send SMS response: {e}")
+                # Still persist the AI response even if SMS sending fails
+                try:
+                    persist_text_message(
+                        target=from_number,
+                        raw_text=response_text,
+                        direction="Outbound",
+                        provider_message_sid=None,
+                        delivery_status="failed",
+                    )
+                    webhook_logger.info(f"AI response saved despite SMS failure: {response_text[:100]}...")
+                except:
+                    pass
+
+            # Log case creation if applicable
+            if case_id:
+                persist_event(
+                    case_id=case_id,
+                    description=f"SMS Emergency: {body[:200]}",
+                    text_message_id=message_row_id,
+                )
+                webhook_logger.info(
+                    "twilio_sms_case_created case_id=%s from_number=%s",
+                    case_id,
+                    from_number,
+                )
+
+        except Exception as e:
+            webhook_logger.error(f"AI agent processing failed: {e}")
+            # Send a fallback message
+            try:
+                fallback_msg = "Emergency system received your message. If urgent, please call 911."
+                sms_result = send_sms(from_number, fallback_msg)
+                persist_text_message(
+                    target=from_number,
+                    raw_text=fallback_msg,
+                    direction="Outbound",
+                    provider_message_sid=sms_result.message_sid,
+                    delivery_status=sms_result.status,
+                )
+            except:
+                pass
 
         webhook_logger.info("twilio_sms_inbound_processed message_sid=%s", message_sid)
         return Response(

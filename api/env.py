@@ -30,5 +30,6 @@ if not TWILIO_AUTH_TOKEN:
     raise RuntimeError("TWILIO_AUTH_TOKEN is required; set it in .env at project root")
 if not TWILIO_FROM_NUMBER:
     raise RuntimeError("TWILIO_FROM_NUMBER is required; set it in .env at project root")
-if not WORKFLOW_WEBHOOK_URL:
-    raise RuntimeError("WORKFLOW_WEBHOOK_URL is required; set it in .env at project root")
+# WORKFLOW_WEBHOOK_URL is now optional since we're using the AI agent directly
+# if not WORKFLOW_WEBHOOK_URL:
+#     raise RuntimeError("WORKFLOW_WEBHOOK_URL is required; set it in .env at project root")
