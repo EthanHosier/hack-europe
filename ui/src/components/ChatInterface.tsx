@@ -7,7 +7,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useGetCaseMessagesMessagesCaseIdGet, useSendMessageMessagesPost } from "@/api/generated/endpoints";
+import {
+  useGetCaseMessagesMessagesCaseIdGet,
+  useSendMessageMessagesPost,
+} from "@/api/generated/endpoints";
 
 interface ChatInterfaceProps {
   caseId: string;
@@ -15,7 +18,7 @@ interface ChatInterfaceProps {
   userName?: string;
 }
 
-export function ChatInterface({ caseId, userId, userName }: ChatInterfaceProps) {
+export function ChatInterface({ caseId, userId }: ChatInterfaceProps) {
   const [message, setMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -28,8 +31,8 @@ export function ChatInterface({ caseId, userId, userName }: ChatInterfaceProps) 
       request: {
         headers: {
           "X-User-Id": userId,
-        }
-      }
+        },
+      },
     }
   );
 
@@ -51,14 +54,15 @@ export function ChatInterface({ caseId, userId, userName }: ChatInterfaceProps) 
           text: message,
           case_id: caseId,
           is_emergency: false,
-        }
+        },
       },
       {
+        //@ts-ignore
         request: {
           headers: {
             "X-User-Id": userId,
-          }
-        }
+          },
+        },
       }
     );
 
@@ -67,7 +71,7 @@ export function ChatInterface({ caseId, userId, userName }: ChatInterfaceProps) 
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
@@ -99,7 +103,8 @@ export function ChatInterface({ caseId, userId, userName }: ChatInterfaceProps) 
                 }`}
               >
                 <div className="text-xs opacity-70 mb-1">
-                  {msg.user_name || "Unknown User"} • {new Date(msg.created_at).toLocaleTimeString()}
+                  {msg.user_name || "Unknown User"} •{" "}
+                  {new Date(msg.created_at).toLocaleTimeString()}
                 </div>
                 <div>{msg.text}</div>
               </div>

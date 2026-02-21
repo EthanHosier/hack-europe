@@ -15,17 +15,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel
 from geopy.geocoders import GoogleV3
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Get API keys from environment
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
-
-# Set the Google API key for Gemini
-os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+from env import GOOGLE_API_KEY, GOOGLE_MAPS_API_KEY
 
 
 class EmergencyInfo(BaseModel):

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
 import { IncidentQueue } from "@/components/ui/IncidentQueue";
 import type { Incident } from "@/components/ui/IncidentQueue";
@@ -202,13 +202,13 @@ const mockResponders = [
 
 export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
-    mockIncidents[0].id,
+    mockIncidents[0].id
   );
 
   const handleDispatch = (responderId: string, incidentId: string) => {
     // TODO: trigger API call to dispatch responder to incident - update state in BE
     console.log(
-      `Dispatching responder ${responderId} to incident ${incidentId}`,
+      `Dispatching responder ${responderId} to incident ${incidentId}`
     );
   };
 
@@ -247,5 +247,4 @@ export default function App() {
       <SimpleChat />
     </div>
   );
-
 }
