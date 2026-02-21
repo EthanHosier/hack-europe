@@ -1,0 +1,16 @@
+# Env and venv
+.venv
+venv
+.env
+.env.*
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+
+# IDE
+.idea
+*.md
