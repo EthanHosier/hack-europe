@@ -1,145 +1,58 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
 import { IncidentQueue } from "@/components/ui/IncidentQueue";
-import type { Incident } from "@/components/ui/IncidentQueue";
+import type {
+  Incident,
+  IncidentQueueHandle,
+} from "@/components/ui/IncidentQueue";
 import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
+import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
+import type { LiveEventResponse } from "@/api/generated/schemas";
 
-// Mock incident data
-const mockIncidents: Incident[] = [
-  {
-    id: "1",
-    type: "medical",
-    description: "Cardiac arrest reported, patient unconscious",
-    region: "Stockholm Central",
-    severity: "critical",
-    timestamp: new Date(Date.now() - 5 * 60000),
-    status: "matching",
-    lat: 59.3293,
-    lng: 18.0686,
-  },
-  {
-    id: "2",
-    type: "fire",
-    description: "Structure fire in residential building",
-    region: "Södermalm",
-    severity: "critical",
-    timestamp: new Date(Date.now() - 12 * 60000),
-    status: "assigned",
-    lat: 59.3167,
-    lng: 18.0667,
-  },
-  {
-    id: "3",
-    type: "rescue",
-    description: "Vehicle accident, multiple casualties",
-    region: "E4 Highway North",
-    severity: "high",
-    timestamp: new Date(Date.now() - 18 * 60000),
-    status: "matching",
-    lat: 59.35,
-    lng: 18.05,
-  },
-  {
-    id: "4",
-    type: "medical",
-    description: "Respiratory distress, elderly patient",
-    region: "Kungsholmen",
-    severity: "high",
-    timestamp: new Date(Date.now() - 25 * 60000),
-    status: "unassigned",
-    lat: 59.33,
-    lng: 18.04,
-  },
-  {
-    id: "5",
-    type: "emergency",
-    description: "Severe allergic reaction, anaphylaxis",
-    region: "Östermalm",
-    severity: "critical",
-    timestamp: new Date(Date.now() - 8 * 60000),
-    status: "matching",
-    lat: 59.34,
-    lng: 18.085,
-  },
-  {
-    id: "6",
-    type: "rescue",
-    description: "Water rescue needed, person in distress",
-    region: "Djurgården",
-    severity: "high",
-    timestamp: new Date(Date.now() - 15 * 60000),
-    status: "assigned",
-    lat: 59.325,
-    lng: 18.115,
-  },
-  {
-    id: "7",
-    type: "medical",
-    description: "Fall injury, possible fracture",
-    region: "Vasastan",
-    severity: "moderate",
-    timestamp: new Date(Date.now() - 30 * 60000),
-    status: "unassigned",
-    lat: 59.345,
-    lng: 18.055,
-  },
-  {
-    id: "8",
-    type: "fire",
-    description: "Small kitchen fire, smoke reported",
-    region: "Solna",
-    severity: "moderate",
-    timestamp: new Date(Date.now() - 35 * 60000),
-    status: "assigned",
-    lat: 59.36,
-    lng: 18.0,
-  },
-  {
-    id: "9",
-    type: "emergency",
-    description: "Gas leak reported in apartment complex",
-    region: "Hägersten",
-    severity: "high",
-    timestamp: new Date(Date.now() - 20 * 60000),
-    status: "matching",
-    lat: 59.3,
-    lng: 18.0,
-  },
-  {
-    id: "10",
-    type: "medical",
-    description: "Diabetic emergency, low blood sugar",
-    region: "Bromma",
-    severity: "moderate",
-    timestamp: new Date(Date.now() - 40 * 60000),
-    status: "unassigned",
-    lat: 59.34,
-    lng: 17.95,
-  },
-  {
-    id: "11",
-    type: "disaster",
-    description: "Building evacuation, structural concern",
-    region: "Lidingö",
-    severity: "high",
-    timestamp: new Date(Date.now() - 28 * 60000),
-    status: "matching",
-    lat: 59.3667,
-    lng: 18.1333,
-  },
-  {
-    id: "12",
-    type: "rescue",
-    description: "Person trapped in elevator",
-    region: "Huddinge",
-    severity: "low",
-    timestamp: new Date(Date.now() - 45 * 60000),
-    status: "assigned",
-    lat: 59.2369,
-    lng: 17.9819,
-  },
-];
+const incidentTypeByCategory: Record<string, Incident["type"]> = {
+  medical: "medical",
+  rescue: "rescue",
+  disaster: "disaster",
+  fire: "fire",
+  fuel: "emergency",
+  shelter: "emergency",
+  food_water: "emergency",
+  other: "emergency",
+};
+
+function toIncidentSeverity(caseSeverity: number): Incident["severity"] {
+  if (caseSeverity >= 5) return "critical";
+  if (caseSeverity >= 4) return "high";
+  if (caseSeverity >= 3) return "moderate";
+  return "low";
+}
+
+function toIncidentStatus(caseStatus: string): Incident["status"] {
+  const normalized = caseStatus.toLowerCase();
+  if (normalized.includes("progress")) return "matching";
+  if (normalized.includes("resolved") || normalized.includes("closed")) {
+    return "assigned";
+  }
+  return "unassigned";
+}
+
+function toIncident(event: LiveEventResponse): Incident {
+  const parsedTimestamp = new Date(event.timestamp);
+  return {
+    id: event.event_id,
+    type: incidentTypeByCategory[event.case_category ?? "other"] ?? "emergency",
+    description: event.description || event.case_title || "Emergency event",
+    region: event.case_title || "Unknown region",
+    severity: toIncidentSeverity(event.case_severity),
+    status: toIncidentStatus(event.case_status),
+    timestamp: Number.isNaN(parsedTimestamp.getTime())
+      ? new Date()
+      : parsedTimestamp,
+    lat: event.latitude,
+    lng: event.longitude,
+  };
+}
 
 // Mock responder data
 const mockResponders = [
@@ -201,40 +114,86 @@ const mockResponders = [
 
 export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
-    mockIncidents[0].id
+    null,
   );
+  const { data: liveEventsResponse } = useGetLiveEventsEventsLiveGet(
+    { limit: 300 },
+    {
+      query: {
+        refetchInterval: 5000,
+        refetchIntervalInBackground: true,
+      },
+    },
+  );
+  const liveEvents = liveEventsResponse?.data ?? [];
+  const incidents = useMemo<Incident[]>(
+    () => liveEvents.map(toIncident),
+    [liveEvents],
+  );
+  const queueRef = useRef<IncidentQueueHandle>(null);
+
+  const handleMapSelect = (id: string) => {
+    setSelectedIncidentId(id);
+    queueRef.current?.scrollTo(id);
+  };
 
   const handleDispatch = (responderId: string, incidentId: string) => {
     // TODO: trigger API call to dispatch responder to incident - update state in BE
     console.log(
-      `Dispatching responder ${responderId} to incident ${incidentId}`
+      `Dispatching responder ${responderId} to incident ${incidentId}`,
     );
   };
 
+  useEffect(() => {
+    if (incidents.length === 0) {
+      setSelectedIncidentId(null);
+      return;
+    }
+
+    const hasSelectedIncident = selectedIncidentId
+      ? incidents.some((incident) => incident.id === selectedIncidentId)
+      : false;
+    if (hasSelectedIncident) return;
+
+    const severityRank: Record<Incident["severity"], number> = {
+      critical: 4,
+      high: 3,
+      moderate: 2,
+      low: 1,
+    };
+    const fallback = [...incidents].sort((a, b) => {
+      const severityDiff = severityRank[b.severity] - severityRank[a.severity];
+      if (severityDiff !== 0) return severityDiff;
+      return b.timestamp.getTime() - a.timestamp.getTime();
+    })[0];
+
+    setSelectedIncidentId(fallback?.id ?? null);
+  }, [incidents, selectedIncidentId]);
+
   const selectedIncident =
-    mockIncidents.find((i) => i.id === selectedIncidentId) || null;
+    incidents.find((incident) => incident.id === selectedIncidentId) || null;
 
   return (
     <div className="size-full flex flex-col bg-[#0a0e1a] text-[#e8eaed]">
       <TopBar
-        activeIncidents={mockIncidents.length}
+        activeIncidents={incidents.length}
         activeResponders={
           mockResponders.filter((r) => r.availability === "available").length
         }
-        regionsMonitored={12}
+        regionsMonitored={1}
       />
 
       <div className="flex-1 flex overflow-hidden">
         <IncidentQueue
-          incidents={mockIncidents}
+          incidents={incidents}
           selectedId={selectedIncidentId}
           onSelectIncident={setSelectedIncidentId}
         />
 
         <MapView
-          incidents={mockIncidents}
+          incidents={incidents}
           selectedId={selectedIncidentId}
-          onSelectIncident={setSelectedIncidentId}
+          onSelectIncident={handleMapSelect}
         />
 
         <IntelligencePanel

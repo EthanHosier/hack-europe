@@ -1,4 +1,5 @@
-import { Brain, CheckCircle, Navigation, Send, Shield } from "lucide-react";
+import { useState } from "react";
+import { Brain, CheckCircle, ChevronLeft, ChevronRight, Navigation, Send, Shield } from "lucide-react";
 import type { Incident } from "./IncidentQueue";
 
 interface Responder {
@@ -34,14 +35,46 @@ export function IntelligencePanel({
   responders,
   onDispatch,
 }: IntelligencePanelProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (collapsed) {
+    return (
+      <div className="w-10 bg-[#0f1419] border-l border-[#1e2530] flex flex-col items-center pt-3 gap-3">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#1a2332] transition-colors"
+          title="Expand panel"
+        >
+          <ChevronLeft className="w-4 h-4 text-[#9ca3af]" />
+        </button>
+        <Brain className="w-4 h-4 text-[#2a3441] mt-1" />
+      </div>
+    );
+  }
+
   if (!selectedIncident) {
     return (
-      <div className="w-[380px] bg-[#0f1419] border-l border-[#1e2530] flex items-center justify-center">
-        <div className="text-center px-8">
-          <Brain className="w-12 h-12 text-[#2a3441] mx-auto mb-3" />
-          <p className="text-[13px] text-[#6b7280]">
-            Select an incident to view AI operational analysis
-          </p>
+      <div className="w-[380px] bg-[#0f1419] border-l border-[#1e2530] flex flex-col">
+        <div className="h-12 border-b border-[#1e2530] flex items-center px-4">
+          <Brain className="w-4 h-4 text-[#2a3441] mr-2" />
+          <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500] flex-1">
+            AI Analysis
+          </span>
+          <button
+            onClick={() => setCollapsed(true)}
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#1a2332] transition-colors"
+            title="Collapse panel"
+          >
+            <ChevronRight className="w-4 h-4 text-[#9ca3af]" />
+          </button>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center px-8">
+            <Brain className="w-12 h-12 text-[#2a3441] mx-auto mb-3" />
+            <p className="text-[13px] text-[#6b7280]">
+              Select an incident to view AI operational analysis
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -63,9 +96,16 @@ export function IntelligencePanel({
       <div className="border-b border-[#1e2530]">
         <div className="h-12 border-b border-[#1e2530] flex items-center px-4 gap-2">
           <Brain className="w-4 h-4 text-[#5b8dbf]" />
-          <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500]">
+          <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500] flex-1">
             AI Operational Analysis
           </span>
+          <button
+            onClick={() => setCollapsed(true)}
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#1a2332] transition-colors"
+            title="Collapse panel"
+          >
+            <ChevronRight className="w-4 h-4 text-[#9ca3af]" />
+          </button>
         </div>
 
         <div className="p-4 space-y-4">
