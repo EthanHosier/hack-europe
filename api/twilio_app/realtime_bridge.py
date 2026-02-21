@@ -2,6 +2,7 @@
 Twilio Media Stream <-> OpenAI Realtime API bridge.
 Forwards audio both ways with format conversion (μ-law 8kHz <-> PCM 24kHz).
 One WebSocket to Twilio, one to OpenAI Realtime; low-latency speech-to-speech.
+Uses function calling to extract structured emergency data and create a case.
 """
 
 from __future__ import annotations
@@ -11,9 +12,14 @@ import base64
 import json
 import logging
 import struct
+import time
+import uuid
 from typing import TYPE_CHECKING
 
+import psycopg
+
 import env
+from agent import EmergencyAgent, EmergencyInfo
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -25,15 +31,47 @@ REALTIME_INPUT_RATE = 24000
 REALTIME_OUTPUT_RATE = 24000
 TWILIO_RATE = 8000
 
-# Same emergency-collection instructions as voice agent (no VOICE_EXTRACTION; Realtime is speech-only).
-REALTIME_INSTRUCTIONS = """You are an emergency response assistant on a live phone call. The caller may be stressed or scared. Collect these four items one at a time, in a calm and reassuring way:
-1. Full name
-2. Social security number (for identification)
-3. Current location (as specific as possible)
-4. Description of the emergency
+REALTIME_INSTRUCTIONS = """\
+You are an emergency dispatcher on a live phone call. Speak English only. Be calm but efficient.
 
-Be warm, calm, and reassuring. Ask for ONE thing at a time. Keep replies SHORT and natural for speech. When you have all four, thank them and say: "That's everything I need. Help is being coordinated. You can hang up when you're ready. Stay safe."
-Categories: fuel, medical, shelter, food_water, rescue, other. Severity 1-5 (5 = life-threatening)."""
+Your ONLY job: collect these four items, then call the tool. Nothing else.
+1. Full name
+2. Social security number
+3. Current location (address or landmark)
+4. What the emergency is
+
+Rules:
+- ONE question per turn. Max 1-2 short sentences.
+- Do NOT make small talk, ask how they are, or chat. Stay on task.
+- If they give extra info, acknowledge briefly ("Got it.") and ask the next missing item.
+- If they go off topic, gently redirect: "I understand. I just need [missing item] to get help to you."
+- Infer category (fuel/medical/shelter/food_water/rescue/other) and severity (1-5) from what they tell you. Do not ask them about category or severity.
+- Once you have all four, immediately call create_emergency_case. Never read JSON aloud.
+- After the tool call, say only: "Help is on the way. You can hang up when ready. Stay safe." Then stop.
+- NEVER mention tools, functions, or technical details.
+
+Start with: "Emergency services, what's your name?\""""
+
+EMERGENCY_TOOL = {
+    "type": "function",
+    "name": "create_emergency_case",
+    "description": "Create an emergency case once all four required fields (full_name, social_security_number, location, emergency_description) have been collected from the caller.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "full_name": {"type": "string", "description": "Caller's full name"},
+            "social_security_number": {"type": "string", "description": "Caller's SSN"},
+            "location": {"type": "string", "description": "Caller's current location"},
+            "emergency_description": {"type": "string", "description": "What happened and what they need"},
+            "category": {
+                "type": "string",
+                "enum": ["fuel", "medical", "shelter", "food_water", "rescue", "other"],
+            },
+            "severity": {"type": "integer", "minimum": 1, "maximum": 5},
+        },
+        "required": ["full_name", "social_security_number", "location", "emergency_description", "category", "severity"],
+    },
+}
 
 # μ-law decode table (8-bit -> 16-bit linear), same as voice_ws
 _MULAW_EXPAND: list[int] = []
@@ -129,8 +167,7 @@ async def run_realtime_bridge(
         )
         webhook_logger.info("realtime_bridge_openai stream_sid=%s", stream_sid)
 
-        # Session update: instructions, voice, server VAD for turn detection (model responds when user stops).
-        # session.type is required by the Realtime API.
+        # Session update with tool + instructions + VAD
         await openai_ws.send(
             json.dumps(
                 {
@@ -139,18 +176,22 @@ async def run_realtime_bridge(
                         "type": "realtime",
                         "output_modalities": ["audio"],
                         "instructions": REALTIME_INSTRUCTIONS,
+                        "tools": [EMERGENCY_TOOL],
+                        "tool_choice": "auto",
                         "audio": {
                             "input": {
                                 "format": {"type": "audio/pcm", "rate": 24000},
                                 "turn_detection": {
                                     "type": "server_vad",
-                                    "threshold": 0.5,
-                                    "prefix_padding_ms": 300,
-                                    "silence_duration_ms": 500,
+                                    "threshold": 0.8,
+                                    "prefix_padding_ms": 500,
+                                    "silence_duration_ms": 800,
+                                    "create_response": True,
+                                    "interrupt_response": False,
                                 },
                             },
                             "output": {
-                                "format": {"type": "audio/pcm"},
+                                "format": {"type": "audio/pcm", "rate": 24000},
                                 "voice": "alloy",
                             },
                         },
@@ -158,8 +199,13 @@ async def run_realtime_bridge(
                 }
             )
         )
-        # Trigger an initial response so the assistant speaks first (greeting).
+        # Trigger an initial greeting from the assistant.
         await openai_ws.send(json.dumps({"type": "response.create"}))
+
+        # Half-duplex: drop user audio while AI speaks + cooldown after
+        ai_speaking = False
+        ai_done_at: float = 0.0  # monotonic time when AI stopped speaking
+        ECHO_COOLDOWN_S = 1.0  # ignore user audio for this long after AI finishes
 
         async def twilio_to_openai():
             """Forward Twilio media events to OpenAI input_audio_buffer.append."""
@@ -183,6 +229,9 @@ async def run_realtime_bridge(
                         )
                         break
                     if ev != "media":
+                        continue
+                    # Drop audio while AI is speaking or during echo cooldown
+                    if ai_speaking or (time.monotonic() - ai_done_at < ECHO_COOLDOWN_S):
                         continue
                     media = msg.get("media") or {}
                     if media.get("track") != "inbound":
@@ -209,9 +258,64 @@ async def run_realtime_bridge(
                     e,
                 )
 
+        async def _handle_tool_call(call_id: str, fn_name: str, fn_args: str) -> None:
+            """Execute tool call, send result back, and trigger a goodbye response."""
+            webhook_logger.info(
+                "realtime_tool_call stream_sid=%s call_id=%s fn=%s args=%s",
+                stream_sid, call_id, fn_name, fn_args[:200],
+            )
+            if fn_name != "create_emergency_case":
+                await openai_ws.send(json.dumps({
+                    "type": "conversation.item.create",
+                    "item": {"type": "function_call_output", "call_id": call_id, "output": '{"error": "unknown function"}'},
+                }))
+                await openai_ws.send(json.dumps({"type": "response.create"}))
+                return
+
+            result_msg = '{"status": "error", "message": "failed to create case"}'
+            try:
+                args = json.loads(fn_args)
+                info = EmergencyInfo(
+                    full_name=args.get("full_name"),
+                    social_security_number=args.get("social_security_number"),
+                    location=args.get("location"),
+                    emergency_description=args.get("emergency_description"),
+                    category=args.get("category", "other"),
+                    severity=args.get("severity", 3),
+                )
+                emergency_agent = EmergencyAgent(env.SUPABASE_URL)
+                with psycopg.connect(env.SUPABASE_POSTGRES_URL) as conn:
+                    user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"voice-{call_sid}"))
+                    case_id = emergency_agent.create_case(info, user_id, conn)
+                result_msg = json.dumps({"status": "ok", "case_id": case_id})
+                webhook_logger.info(
+                    "realtime_case_created stream_sid=%s case_id=%s call_sid=%s",
+                    stream_sid, case_id, call_sid,
+                )
+            except Exception:
+                webhook_logger.exception("realtime_case_create_error stream_sid=%s", stream_sid)
+
+            # Send tool result so the model can confirm + say goodbye
+            await openai_ws.send(json.dumps({
+                "type": "conversation.item.create",
+                "item": {"type": "function_call_output", "call_id": call_id, "output": result_msg},
+            }))
+            await openai_ws.send(json.dumps({"type": "response.create"}))
+
+        async def _end_call_via_twilio() -> None:
+            """Use Twilio REST API to hang up the call after the goodbye plays."""
+            try:
+                from twilio.rest import Client as TwilioClient
+                client = TwilioClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN)
+                client.calls(call_sid).update(status="completed")
+                webhook_logger.info("realtime_call_ended stream_sid=%s call_sid=%s", stream_sid, call_sid)
+            except Exception:
+                webhook_logger.exception("realtime_call_end_error stream_sid=%s", stream_sid)
+
         async def openai_to_twilio():
-            """Forward OpenAI audio deltas to Twilio media."""
+            """Forward OpenAI audio deltas to Twilio media and handle tool calls."""
             openai_event_count = 0
+            case_created = False
             try:
                 webhook_logger.info("realtime_openai_listener_started stream_sid=%s", stream_sid)
                 while True:
@@ -220,8 +324,7 @@ async def run_realtime_bridge(
                     except Exception as recv_err:
                         webhook_logger.info(
                             "realtime_openai_exit stream_sid=%s reason=recv_error error=%s",
-                            stream_sid,
-                            recv_err,
+                            stream_sid, recv_err,
                         )
                         break
                     if isinstance(message, bytes):
@@ -229,19 +332,20 @@ async def run_realtime_bridge(
                     try:
                         data = json.loads(message)
                     except json.JSONDecodeError:
-                        webhook_logger.warning("realtime_openai_non_json stream_sid=%s len=%s", stream_sid, len(message))
                         continue
                     typ = data.get("type") or ""
-                    event_id = data.get("event_id", "")
                     openai_event_count += 1
-                    webhook_logger.info(
-                        "realtime_openai_event stream_sid=%s type=%s event_id=%s",
-                        stream_sid,
-                        typ,
-                        event_id,
-                    )
-                    # Docs: server sends response.output_audio.delta with base64 audio in "delta"
+                    # Log non-audio events (audio deltas are too frequent)
+                    if typ != "response.output_audio.delta":
+                        webhook_logger.info(
+                            "realtime_openai_event stream_sid=%s type=%s",
+                            stream_sid, typ,
+                        )
+
+                    # --- Audio: forward to Twilio, mark AI as speaking ---
                     if typ == "response.output_audio.delta":
+                        nonlocal ai_speaking, ai_done_at
+                        ai_speaking = True
                         audio_b64 = data.get("delta") or data.get("audio")
                         if audio_b64:
                             pcm_24k = base64.b64decode(audio_b64)
@@ -251,20 +355,48 @@ async def run_realtime_bridge(
                                 await twilio_ws.send_json(
                                     {"event": "media", "streamSid": stream_sid, "media": {"payload": chunk_b64}}
                                 )
+
+                    # --- AI finished speaking: clear flag, record time, flush buffer ---
+                    elif typ == "response.output_audio.done":
+                        ai_speaking = False
+                        ai_done_at = time.monotonic()
+                        try:
+                            await openai_ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+                        except Exception:
+                            pass
+                        if case_created:
+                            webhook_logger.info(
+                                "realtime_goodbye_done stream_sid=%s — ending call",
+                                stream_sid,
+                            )
+                            await asyncio.sleep(1.5)
+                            await _end_call_via_twilio()
+                            break
+
+                    # --- Function call complete: execute tool ---
+                    elif typ == "response.done":
+                        response = data.get("response", {})
+                        for output_item in response.get("output", []):
+                            if output_item.get("type") == "function_call":
+                                await _handle_tool_call(
+                                    output_item.get("call_id", ""),
+                                    output_item.get("name", ""),
+                                    output_item.get("arguments", "{}"),
+                                )
+                                case_created = True
+
                     elif typ == "error":
                         webhook_logger.warning("realtime_bridge_openai_error stream_sid=%s body=%s", stream_sid, data)
+
             except asyncio.CancelledError:
                 webhook_logger.info(
                     "realtime_openai_exit stream_sid=%s reason=cancelled events_received=%s",
-                    stream_sid,
-                    openai_event_count,
+                    stream_sid, openai_event_count,
                 )
             except Exception as e:
                 webhook_logger.warning(
                     "realtime_openai_exit stream_sid=%s reason=error error=%s events_received=%s",
-                    stream_sid,
-                    e,
-                    openai_event_count,
+                    stream_sid, e, openai_event_count,
                 )
 
         # Run both directions; stop when Twilio disconnects or OpenAI closes
