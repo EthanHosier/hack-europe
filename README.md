@@ -137,6 +137,14 @@ The script uses `SUPABASE_POSTGRES_URL` from the root `.env`, applies any new `.
 
 - Inbound webhook normalizes message data and calls `handle_inbound_message(...)` in `api/workflow_bridge.py`.
 - This is intentionally a no-op contract placeholder so your AI teammate can plug in classification + broadcast logic without changing public API shape.
+- **API in Docker** (uses `.env` at project root for `SUPABASE_URL` and `SUPABASE_POSTGRES_URL`):
+
+  ```bash
+  npm run docker:build
+  npm run docker:run
+  ```
+
+  Then open http://localhost:8000 (e.g. `curl http://localhost:8000/health`).
 
 ## Project layout
 

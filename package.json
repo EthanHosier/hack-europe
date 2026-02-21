@@ -6,7 +6,10 @@
     "dev:ui": "npm run dev --prefix ui",
     "dev:api": "cd api && python -m uvicorn index:app --reload --host 0.0.0.0",
     "api:gen": "(cd api && python export_openapi.py) && npm run api:gen --prefix ui",
-    "migrate": "tsx scripts/migrate.ts"
+    "migrate": "tsx scripts/migrate.ts",
+    "docker:build": "docker build -f api/Dockerfile -t hack-europe-api api",
+    "docker:run": "docker run --rm -p 8000:8000 --env-file .env hack-europe-api",
+    "deploy:ecr": "docker build --platform linux/amd64 -f api/Dockerfile -t 296410404869.dkr.ecr.us-west-2.amazonaws.com/hack-europe:latest api"
   },
   "devDependencies": {
     "@types/pg": "^8.11.6",
