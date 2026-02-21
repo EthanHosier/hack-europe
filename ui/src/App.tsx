@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useRef, useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
 import { IncidentQueue } from "@/components/ui/IncidentQueue";
-import type { Incident } from "@/components/ui/IncidentQueue";
+import type { Incident, IncidentQueueHandle } from "@/components/ui/IncidentQueue";
 import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
@@ -127,11 +128,17 @@ export default function App() {
     () => liveEvents.map(toIncident),
     [liveEvents]
   );
+  const queueRef = useRef<IncidentQueueHandle>(null);
+
+  const handleMapSelect = (id: string) => {
+    setSelectedIncidentId(id);
+    queueRef.current?.scrollTo(id);
+  };
 
   const handleDispatch = (responderId: string, incidentId: string) => {
     // TODO: trigger API call to dispatch responder to incident - update state in BE
     console.log(
-      `Dispatching responder ${responderId} to incident ${incidentId}`
+      `Dispatching responder ${responderId} to incident ${incidentId}`,
     );
   };
 
@@ -171,7 +178,7 @@ export default function App() {
         activeResponders={
           mockResponders.filter((r) => r.availability === "available").length
         }
-        regionsMonitored={12}
+        regionsMonitored={1}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -184,7 +191,7 @@ export default function App() {
         <MapView
           incidents={incidents}
           selectedId={selectedIncidentId}
-          onSelectIncident={setSelectedIncidentId}
+          onSelectIncident={handleMapSelect}
         />
 
         <IntelligencePanel
