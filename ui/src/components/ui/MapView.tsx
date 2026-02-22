@@ -814,16 +814,10 @@ export function MapView({
   };
 
   return (
-    <div className="flex-1 bg-[#0a0e1a] relative overflow-hidden">
-      <div className="absolute top-4 left-4 z-10 px-3 py-1.5 bg-[#1a2332]/90 border border-[#2a3441] rounded backdrop-blur-sm">
-        <span className="text-[11px] text-[#9ca3af] uppercase tracking-wider">
-          Stockholm Region • Sweden
-        </span>
-      </div>
-
+    <div className="flex-1 bg-[#0a0e1a] relative overflow-hidden [&_.mapboxgl-ctrl]:!hidden">
       <div ref={mapContainerRef} className="w-full h-full" />
 
-      <div className="absolute top-4 right-12 z-10 bg-[#1a2332]/90 border border-[#2a3441] rounded backdrop-blur-sm p-3 w-[230px]">
+      <div className="absolute top-4 right-4 z-10 bg-[#1a2332]/90 border border-[#2a3441] rounded backdrop-blur-sm p-3 w-[230px]">
         <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mb-2">
           View Controls
         </div>

@@ -10,6 +10,7 @@ import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
 import type { LiveEventResponse } from "@/api/generated/schemas";
 import { useCompleteCase } from "@/lib/useCompleteCase";
+import { generateTestIncidents } from "./test/generatePoints";
 
 const ALL_INCIDENT_TYPES: Incident["type"][] = [
   "fire",
@@ -69,6 +70,8 @@ function toIncident(event: LiveEventResponse): Incident {
     recommendedAction: event.recommended_action ?? null,
   };
 }
+
+// const mockIncidents = generateTestIncidents(800);
 
 // Mock responder data
 const mockResponders = [
@@ -153,6 +156,7 @@ export default function App() {
     () => liveEvents.map(toIncident),
     [liveEvents],
   );
+  // const incidents = mockIncidents;
   const filteredIncidents = useMemo(
     () =>
       selectedTypes.length === 0
