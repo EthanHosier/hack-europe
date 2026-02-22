@@ -1,4 +1,4 @@
-"""Handler for SMS received on the speciality Twilio number (+46 76 479 02 15)."""
+"""Handler for SMS received on the speciality Twilio number (+46 76 479 00 83)."""
 
 import json
 import logging
@@ -21,6 +21,19 @@ from env import (
 from twilio_app import send_sms
 
 logger = logging.getLogger("uvicorn.error")
+
+# Twilio number for this handler (replies sent from this number when using from_number=)
+TWILIO_SPECIALITY_NUMBER = "+46764790083"
+
+# Twilio SMS body limit (concatenated message)
+SMS_BODY_MAX_LEN = 1600
+
+
+def _truncate_sms_body(text: str) -> str:
+    """Truncate to Twilio 1600 char limit."""
+    if len(text) <= SMS_BODY_MAX_LEN:
+        return text
+    return text[: SMS_BODY_MAX_LEN - 3] + "..."
 
 SUCCESS_RESPONSE = Response(
     content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
@@ -65,7 +78,7 @@ FIRST_MESSAGE_REPLY = (
     "Thanks for reaching out! Please reply with your name and a description of your skills and your location."
 )
 
-GEMINI_MODEL = "gemini-3-flash-preview"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 def _parse_speciality_with_llm(messages: list[str]) -> tuple[dict | None, str | None]:
@@ -100,17 +113,24 @@ If you can extract all three (name, at least one skill, location) to a clear sta
 If anything is missing or too vague, reply with a single short message asking the user to provide the missing information or to expand (e.g. "Please share your name and location." or "Could you list at least one skill?"). Do not output JSON in that case."""
     try:
         response = llm.invoke([HumanMessage(content=prompt)])
-        text = (response.content or "").strip()
+        content = response.content
+        if isinstance(content, list):
+            text = " ".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content).strip()
+        else:
+            text = (content or "").strip()
         raw = _extract_json_object(text)
         if raw is None:
             follow = text if text else "Please send your name, at least one skill, and your location."
+            logger.info("sms_speciality_parse_speciality_with_llm failed to extract JSON for %s, returning follow_up: %s", text, follow)
             return (None, follow)
         parsed = _validate_parsed_speciality(raw)
         if parsed is not None:
+            logger.info("sms_speciality_parse_speciality_with_llm successfully parsed %s", parsed)
             return (parsed, None)
         follow = text if text else "Please send your name, at least one skill, and your location."
         return (None, follow)
-    except Exception:
+    except Exception as e:
+        logger.exception("sms_speciality_parse_speciality_with_llm failed to parse %s: %s", messages, e)
         return (
             None,
             "Please send your name, at least one skill, and your location.",
@@ -292,7 +312,7 @@ def _accept_case_to_user(user_id: str, case_id: str) -> None:
             )
             conn.commit()
         
-    send_sms(user_id, "Case accepted")
+    send_sms(user_id, "Case accepted", from_number=TWILIO_SPECIALITY_NUMBER)
 
 def handle_sms_speciality_number(
     from_number: str, to_number: str, body: str, message_sid: str | None
@@ -311,20 +331,24 @@ def handle_sms_speciality_number(
     _persist_speciality_message(from_number, body)
 
     if is_first_message:
-        send_sms(from_number, FIRST_MESSAGE_REPLY)
+        logger.info("sms_speciality_first_message sending reply to %s", from_number)
+        try:
+            send_sms(from_number, FIRST_MESSAGE_REPLY, from_number=TWILIO_SPECIALITY_NUMBER)
+        except Exception as e:
+            logger.exception("sms_speciality_first_message send_sms failed: %s", e)
+            raise
         return SUCCESS_RESPONSE
 
     # Full conversation: historic + this message (we just persisted it)
     all_messages = historic + [body]
     parsed, follow_up = _parse_speciality_with_llm(all_messages)
     if follow_up:
-        send_sms(from_number, follow_up)
+        send_sms(from_number, _truncate_sms_body(follow_up), from_number=TWILIO_SPECIALITY_NUMBER)
         return SUCCESS_RESPONSE
 
     # Parsed case: geocode location, embed each skill, persist user + ethan_user_speciality, then send confirmation
     lat, lng = _geocode_location(parsed["location"])
     skill_embeddings = _embed_texts(parsed["skills"])
     _persist_parsed_speciality(from_number, parsed, lat, lng, skill_embeddings)
-    send_sms(from_number, parsed["confirmation_message"])
+    send_sms(from_number, _truncate_sms_body(parsed["confirmation_message"]), from_number=TWILIO_SPECIALITY_NUMBER)
     return SUCCESS_RESPONSE
-
