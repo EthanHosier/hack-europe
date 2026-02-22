@@ -959,6 +959,7 @@ async def create_quick_emergency(request: QuickEmergencyRequest) -> CaseResponse
 
             user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"quick-{info.social_security_number}"))
             agent = EmergencyAgent(SUPABASE_URL)
+            agent.analyse_emergency(info)
             with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
                 case_id = agent.create_case(info, user_id, conn)
 
