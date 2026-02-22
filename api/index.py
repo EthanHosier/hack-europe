@@ -162,6 +162,7 @@ class CaseResponse(BaseModel):
     stress_level: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    completed_at: Optional[datetime] = None
     maps_url: Optional[str] = None
 
 
@@ -1224,6 +1225,34 @@ async def respond_to_case(
 
                 conn.commit()
                 return {"success": True, "message": "Successfully responded to case"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cases/{case_id}/complete", response_model=CaseResponse)
+async def complete_case(case_id: str) -> CaseResponse:
+    """Mark a case as completed by setting completed_at and status to Resolved."""
+    try:
+        now = datetime.utcnow()
+        with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE "case"
+                    SET completed_at = %s, status = 'Resolved', updated_at = %s
+                    WHERE id = %s
+                    RETURNING *
+                    """,
+                    (now, now, case_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Case not found")
+                row["id"] = str(row["id"])
+                conn.commit()
+        return CaseResponse(**row)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
