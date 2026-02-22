@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  BarChart2,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -53,8 +54,8 @@ interface IncidentQueueProps {
   incidentTypeCounts: Record<Incident["type"], number>;
   onToggleType: (type: Incident["type"]) => void;
   onClearAllTypes: () => void;
-  viewMode: "active" | "historical";
-  onViewModeChange: (mode: "active" | "historical") => void;
+  viewMode: "active" | "historical" | "analytics";
+  onViewModeChange: (mode: "active" | "historical" | "analytics") => void;
 }
 
 export interface IncidentQueueHandle {
@@ -108,6 +109,13 @@ function sortBySeverityThenTime(list: Incident[]): Incident[] {
     const d = severityRank[b.severity] - severityRank[a.severity];
     return d !== 0 ? d : b.timestamp.getTime() - a.timestamp.getTime();
   });
+}
+
+function formatMins(mins: number): string {
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
 function getTimeSince(ts: Date): string {
@@ -349,6 +357,92 @@ export const IncidentQueue = forwardRef<
   const hiddenRecentCount = recentByTime.length - RECENT_DEFAULT_LIMIT;
   const activeCount = unassigned.length + p2pIncidents.length;
 
+  const analytics = useMemo(() => {
+    const withTime = historical.filter((i) => i.completedAt !== null);
+
+    const avgMttrMins = (list: Incident[]) => {
+      if (list.length === 0) return null;
+      const ms =
+        list.reduce(
+          (s, i) => s + (i.completedAt!.getTime() - i.timestamp.getTime()),
+          0,
+        ) / list.length;
+      return Math.round(ms / 60_000);
+    };
+
+    const overallMttr = avgMttrMins(withTime);
+
+    const mttrByType = (
+      [
+        "medical",
+        "fire",
+        "rescue",
+        "disaster",
+        "emergency",
+        "other",
+      ] as Incident["type"][]
+    )
+      .map((type) => ({
+        type,
+        mttr: avgMttrMins(withTime.filter((i) => i.type === type)),
+        count: historical.filter((i) => i.type === type).length,
+      }))
+      .filter((x) => x.mttr !== null)
+      .sort((a, b) => b.mttr! - a.mttr!);
+
+    const p2pMttr = avgMttrMins(withTime.filter((i) => i.p2p));
+    const specialistMttr = avgMttrMins(withTime.filter((i) => !i.p2p));
+    const p2pRate =
+      historical.length > 0
+        ? Math.round(
+            (historical.filter((i) => i.p2p).length / historical.length) * 100,
+          )
+        : 0;
+
+    const now = Date.now();
+    const lastHour = historical.filter(
+      (i) => i.completedAt && now - i.completedAt.getTime() < 3_600_000,
+    ).length;
+    const last24h = historical.filter(
+      (i) => i.completedAt && now - i.completedAt.getTime() < 86_400_000,
+    ).length;
+    const avgPerHour = Math.round((last24h / 24) * 10) / 10;
+
+    const sev = (["critical", "high", "moderate", "low"] as const).map(
+      (s) => ({
+        key: s,
+        count: historical.filter((i) => i.severity === s).length,
+      }),
+    );
+    const sevTotal = sev.reduce((a, b) => a + b.count, 0);
+
+    const regionMap: Record<string, number> = {};
+    historical.forEach((i) => {
+      regionMap[i.region] = (regionMap[i.region] ?? 0) + 1;
+    });
+    const topRegions = Object.entries(regionMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    const hourBuckets = Array.from({ length: 24 }, (_, h) =>
+      historical.filter((i) => i.timestamp.getHours() === h).length,
+    );
+
+    return {
+      overallMttr,
+      mttrByType,
+      p2pMttr,
+      specialistMttr,
+      p2pRate,
+      lastHour,
+      avgPerHour,
+      sev,
+      sevTotal,
+      topRegions,
+      hourBuckets,
+    };
+  }, [historical]);
+
   // ── Handlers ──────────────────────────────────────────────────────────
 
   const handleRecentClick = useCallback(
@@ -430,26 +524,46 @@ export const IncidentQueue = forwardRef<
       {/* ── Header ── */}
       <div className="h-12 border-b border-[#1e2530] flex items-center px-4 gap-2 shrink-0">
         <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500]">
-          {viewMode === "active" ? "Live Incidents" : "Resolved Cases"}
+          {viewMode === "active"
+            ? "Live Incidents"
+            : viewMode === "historical"
+              ? "Resolved Cases"
+              : "Analytics"}
         </span>
         <span className="text-[12px] text-[#5b8dbf] tabular-nums font-[500]">
           {viewMode === "active" ? activeCount : historical.length}
         </span>
-        <button
-          onClick={() =>
-            onViewModeChange(viewMode === "active" ? "historical" : "active")
-          }
-          className={[
-            "ml-auto flex items-center gap-1.5 text-[10px] px-2 py-1 rounded",
-            "uppercase tracking-wider font-[500] transition-colors border",
-            viewMode === "historical"
-              ? "bg-[#3B5B8C20] text-[#5b8dbf] border-[#3B5B8C60]"
-              : "text-[#6b7280] hover:text-[#9ca3af] border-[#1e2530] hover:border-[#2e3540]",
-          ].join(" ")}
-        >
-          <History className="w-3 h-3" />
-          {viewMode === "active" ? "History" : "Live"}
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={() =>
+              onViewModeChange(viewMode === "historical" ? "active" : "historical")
+            }
+            className={[
+              "flex items-center gap-1.5 text-[10px] px-2 py-1 rounded",
+              "uppercase tracking-wider font-[500] transition-colors border",
+              viewMode === "historical"
+                ? "bg-[#3B5B8C20] text-[#5b8dbf] border-[#3B5B8C60]"
+                : "text-[#6b7280] hover:text-[#9ca3af] border-[#1e2530] hover:border-[#2e3540]",
+            ].join(" ")}
+          >
+            <History className="w-3 h-3" />
+            {viewMode === "historical" ? "Live" : "History"}
+          </button>
+          <button
+            onClick={() =>
+              onViewModeChange(viewMode === "analytics" ? "active" : "analytics")
+            }
+            className={[
+              "flex items-center gap-1.5 text-[10px] px-2 py-1 rounded",
+              "uppercase tracking-wider font-[500] transition-colors border",
+              viewMode === "analytics"
+                ? "bg-[#3B5B8C20] text-[#5b8dbf] border-[#3B5B8C60]"
+                : "text-[#6b7280] hover:text-[#9ca3af] border-[#1e2530] hover:border-[#2e3540]",
+            ].join(" ")}
+          >
+            <BarChart2 className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
       {/* ── Type filter ── */}
@@ -646,6 +760,281 @@ export const IncidentQueue = forwardRef<
               </div>
             ) : (
               historical.map((i) => renderCard(i, true))
+            )}
+          </div>
+        )}
+
+        {/* ANALYTICS VIEW */}
+        {viewMode === "analytics" && (
+          <div className="h-full overflow-y-auto">
+            {historical.length === 0 ? (
+              <div className="px-4 py-12 text-center text-[12px] text-[#4a4a5a]">
+                No resolved cases to analyse yet
+              </div>
+            ) : (
+              <div className="p-4 space-y-6">
+
+                {/* ── Summary cards 2×2 ── */}
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    {
+                      label: "Resolved",
+                      value: historical.length.toString(),
+                      sub: "total cases",
+                    },
+                    {
+                      label: "Avg MTTR",
+                      value:
+                        analytics.overallMttr != null
+                          ? formatMins(analytics.overallMttr)
+                          : "—",
+                      sub: "mean time to resolve",
+                    },
+                    {
+                      label: "Last Hour",
+                      value: analytics.lastHour.toString(),
+                      sub: `${analytics.avgPerHour}/h 24h avg`,
+                    },
+                    {
+                      label: "P2P Rate",
+                      value: `${analytics.p2pRate}%`,
+                      sub: "peer-coordinated",
+                    },
+                  ].map(({ label, value, sub }) => (
+                    <div
+                      key={label}
+                      className="bg-[#141825] border border-[#1e2530] rounded-md p-3"
+                    >
+                      <div className="text-[9px] text-[#6b7280] uppercase tracking-wider mb-1.5">
+                        {label}
+                      </div>
+                      <div className="text-[22px] text-[#e8eaed] font-[600] tabular-nums leading-none mb-1">
+                        {value}
+                      </div>
+                      <div className="text-[9px] text-[#4a5c6e] leading-tight">
+                        {sub}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ── Response time by type ── */}
+                <div>
+                  <p className="text-[10px] text-[#5b7a9a] uppercase tracking-wider font-[500] mb-3">
+                    Response Time by Type
+                  </p>
+                  {analytics.mttrByType.length === 0 ? (
+                    <p className="text-[11px] text-[#4a4a5a]">
+                      Insufficient data
+                    </p>
+                  ) : (
+                    (() => {
+                      const maxMttr = Math.max(
+                        ...analytics.mttrByType.map((x) => x.mttr!),
+                        1,
+                      );
+                      return analytics.mttrByType.map(
+                        ({ type, mttr, count }) => {
+                          const Icon = typeIcons[type];
+                          return (
+                            <div key={type} className="mb-3">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <Icon
+                                    className="w-3 h-3"
+                                    style={{
+                                      color: severityColors.moderate,
+                                    }}
+                                  />
+                                  <span className="text-[11px] text-[#c5cad3] capitalize">
+                                    {type}
+                                  </span>
+                                  <span className="text-[9px] text-[#4a5c6e]">
+                                    ({count})
+                                  </span>
+                                </div>
+                                <span className="text-[11px] text-[#9ca3af] tabular-nums font-[500]">
+                                  {formatMins(mttr!)}
+                                </span>
+                              </div>
+                              <div className="w-full h-1.5 bg-[#1a2332] rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${(mttr! / maxMttr) * 100}%`,
+                                    backgroundColor: "#5b8dbf",
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        },
+                      );
+                    })()
+                  )}
+                </div>
+
+                {/* ── Peer vs Specialist MTTR ── */}
+                <div>
+                  <p className="text-[10px] text-[#5b7a9a] uppercase tracking-wider font-[500] mb-3">
+                    Peer vs Specialist MTTR
+                  </p>
+                  <div className="flex gap-2">
+                    {[
+                      {
+                        label: "Peer",
+                        value: analytics.p2pMttr,
+                        color: "#3d7a5e",
+                      },
+                      {
+                        label: "Specialist",
+                        value: analytics.specialistMttr,
+                        color: "#5b8dbf",
+                      },
+                    ].map(({ label, value, color }) => (
+                      <div
+                        key={label}
+                        className="flex-1 bg-[#141825] border border-[#1e2530] rounded-md p-3"
+                      >
+                        <div className="text-[9px] text-[#6b7280] uppercase tracking-wider mb-1.5">
+                          {label}
+                        </div>
+                        <div
+                          className="text-[18px] font-[600] tabular-nums leading-none"
+                          style={{ color }}
+                        >
+                          {value != null ? formatMins(value) : "—"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {analytics.p2pMttr != null &&
+                    analytics.specialistMttr != null && (
+                      <p className="text-[10px] text-[#4a5c6e] mt-2 leading-snug">
+                        {analytics.p2pMttr < analytics.specialistMttr
+                          ? `Peer coordination resolves ${formatMins(analytics.specialistMttr - analytics.p2pMttr)} faster on average`
+                          : `Specialist dispatch resolves ${formatMins(analytics.p2pMttr - analytics.specialistMttr)} faster on average`}
+                      </p>
+                    )}
+                </div>
+
+                {/* ── Severity breakdown ── */}
+                <div>
+                  <p className="text-[10px] text-[#5b7a9a] uppercase tracking-wider font-[500] mb-3">
+                    Severity Breakdown
+                  </p>
+                  {analytics.sev.map(({ key, count }) => {
+                    const pct =
+                      analytics.sevTotal > 0
+                        ? Math.round((count / analytics.sevTotal) * 100)
+                        : 0;
+                    return (
+                      <div key={key} className="mb-2.5">
+                        <div className="flex items-center justify-between mb-1">
+                          <span
+                            className="text-[10px] uppercase tracking-wider font-[500]"
+                            style={{ color: severityColors[key] }}
+                          >
+                            {key}
+                          </span>
+                          <span className="text-[10px] text-[#6b7280] tabular-nums">
+                            {count} · {pct}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-[#1a2332] rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: severityColors[key],
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ── Regional hotspots ── */}
+                {analytics.topRegions.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-[#5b7a9a] uppercase tracking-wider font-[500] mb-3">
+                      Hotspot Regions
+                    </p>
+                    {(() => {
+                      const maxCount = analytics.topRegions[0][1];
+                      return analytics.topRegions.map(
+                        ([region, count], idx) => (
+                          <div key={region} className="mb-2.5">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] text-[#4a5c6e] tabular-nums w-3 text-right">
+                                  {idx + 1}
+                                </span>
+                                <span className="text-[11px] text-[#c5cad3]">
+                                  {region}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-[#9ca3af] tabular-nums">
+                                {count}
+                              </span>
+                            </div>
+                            <div className="w-full h-1 bg-[#1a2332] rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `${(count / maxCount) * 100}%`,
+                                  backgroundColor:
+                                    idx === 0 ? "#8B2835" : "#5b8dbf",
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ),
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* ── Peak hours ── */}
+                <div>
+                  <p className="text-[10px] text-[#5b7a9a] uppercase tracking-wider font-[500] mb-3">
+                    Incident Volume by Hour
+                  </p>
+                  <div
+                    className="flex items-end gap-px"
+                    style={{ height: "48px" }}
+                  >
+                    {analytics.hourBuckets.map((count, h) => {
+                      const max = Math.max(...analytics.hourBuckets, 1);
+                      const pct = (count / max) * 100;
+                      return (
+                        <div
+                          key={h}
+                          className="flex-1 rounded-sm"
+                          title={`${h.toString().padStart(2, "0")}:00 — ${count}`}
+                          style={{
+                            height: `${Math.max(pct, count > 0 ? 6 : 0)}%`,
+                            backgroundColor:
+                              pct > 70
+                                ? severityColors.critical
+                                : pct > 40
+                                  ? severityColors.high
+                                  : "#3B5B8C",
+                            opacity: 0.85,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between mt-1.5">
+                    <span className="text-[9px] text-[#4a5c6e]">00:00</span>
+                    <span className="text-[9px] text-[#4a5c6e]">12:00</span>
+                    <span className="text-[9px] text-[#4a5c6e]">23:00</span>
+                  </div>
+                </div>
+
+              </div>
             )}
           </div>
         )}

@@ -148,9 +148,9 @@ export default function App() {
     null,
   );
   const [selectedTypes, setSelectedTypes] = useState<Incident["type"][]>([]);
-  const [queueViewMode, setQueueViewMode] = useState<"active" | "historical">(
-    "active",
-  );
+  const [queueViewMode, setQueueViewMode] = useState<
+    "active" | "historical" | "analytics"
+  >("active");
   const [dispatchedByIncident, setDispatchedByIncident] = useState<
     Record<string, string[]>
   >({});
@@ -181,12 +181,12 @@ export default function App() {
   );
   const mapIncidents = useMemo(
     () =>
-      queueViewMode === "active"
+      queueViewMode === "historical"
         ? filteredIncidents.filter(
-            (i) => i.completedAt === null && i.status !== "assigned",
+            (i) => i.completedAt !== null || i.status === "assigned",
           )
         : filteredIncidents.filter(
-            (i) => i.completedAt !== null || i.status === "assigned",
+            (i) => i.completedAt === null && i.status !== "assigned",
           ),
     [filteredIncidents, queueViewMode],
   );
