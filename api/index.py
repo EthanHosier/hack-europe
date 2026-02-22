@@ -107,6 +107,11 @@ class SearchUsersBySpecialityRequest(BaseModel):
     lng: float
     query: str
     max_match_count: int = 10
+    case_id: Optional[str] = None
+
+
+class UserWithNotifiedResponse(UserResponse):
+    notified_for_case: bool = False
 
 
 class MessageCreate(BaseModel):
@@ -870,9 +875,9 @@ async def get_current_user(user_id: str = Header(alias="X-User-Id")) -> UserResp
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/users/search-by-speciality", response_model=List[UserResponse])
-def search_users_by_speciality(body: SearchUsersBySpecialityRequest) -> List[UserResponse]:
-    """Find users with specialties closest by geographical + semantic distance. Generates embedding for query."""
+@app.post("/users/search-by-speciality", response_model=List[UserWithNotifiedResponse])
+def search_users_by_speciality(body: SearchUsersBySpecialityRequest) -> List[UserWithNotifiedResponse]:
+    """Find users with specialties closest by geographical + semantic distance. Generates embedding for query. Optionally pass case_id to get notified_for_case per user."""
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY not set")
     try:
@@ -886,12 +891,13 @@ def search_users_by_speciality(body: SearchUsersBySpecialityRequest) -> List[Use
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Embedding failed: {e}")
     vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
+    case_uuid = uuid.UUID(body.case_id) if body.case_id else None
     try:
         with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT * FROM search_users_by_embedding_and_location(%s::vector, %s, %s, %s)""",
-                    (vec_str, body.lat, body.lng, body.max_match_count),
+                    """SELECT * FROM search_users_by_embedding_and_location(%s::vector, %s, %s, %s, %s)""",
+                    (vec_str, body.lat, body.lng, body.max_match_count, case_uuid),
                 )
                 rows = cur.fetchall()
     except Exception as e:
@@ -900,7 +906,7 @@ def search_users_by_speciality(body: SearchUsersBySpecialityRequest) -> List[Use
     for r in rows:
         r = dict(r)
         r["id"] = str(r["id"])
-        out.append(UserResponse(**r))
+        out.append(UserWithNotifiedResponse(**r))
     return out
 
 
