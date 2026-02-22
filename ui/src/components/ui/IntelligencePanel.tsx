@@ -156,7 +156,7 @@ export function IntelligencePanel({
               <div className="bg-[#141825] border border-[#2a3441] rounded p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] text-[#6b7280] uppercase tracking-wider">
-                    Confidence
+                    Accuracy Confidence
                   </span>
                   <span className="text-[14px] text-[#e8eaed] font-[500] tabular-nums">
                     {selectedIncident.confidence}%
