@@ -2,7 +2,6 @@
 HackEurope API: health, SMS/voice webhooks, messages.
 """
 
-import asyncio
 import json
 import logging
 import uuid
@@ -14,7 +13,7 @@ from psycopg.rows import dict_row
 from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from twilio.base.exceptions import TwilioRestException
 
 from env import SUPABASE_POSTGRES_URL, VOICE_STREAM_WS_URL
@@ -24,7 +23,6 @@ from twilio_app import (
     TwilioConfigError,
     build_connect_stream_twiml,
     build_say_hangup_twiml,
-    handle_elevenlabs_voice_stream,
     handle_realtime_voice_stream,
     handle_voice_media_stream,
     send_sms,
@@ -124,34 +122,6 @@ class EmergencyRequest(BaseModel):
     longitude: Optional[float] = None
 
 
-class QuickEmergencyRequest(BaseModel):
-    full_name: str
-    social_security_number: str
-    location: str
-    emergency_description: str
-    category: Literal["fuel", "medical", "shelter", "food_water", "rescue", "other"] = "other"
-    severity: int = 3
-    stress_level: Optional[Literal["Low", "Medium", "High"]] = None
-
-    @field_validator("severity", mode="before")
-    @classmethod
-    def coerce_severity(cls, v: object) -> int:
-        v = int(v)
-        if v < 1 or v > 5:
-            raise ValueError("severity must be between 1 and 5")
-        return v
-
-    @field_validator("stress_level", mode="before")
-    @classmethod
-    def normalize_stress_level(cls, v: object) -> str | None:
-        if v is None:
-            return None
-        s = str(v).strip().capitalize()
-        if s not in ("Low", "Medium", "High"):
-            return None
-        return s
-
-
 class CaseResponse(BaseModel):
     id: str
     title: str
@@ -159,7 +129,6 @@ class CaseResponse(BaseModel):
     severity: int
     status: str
     category: Optional[str] = None
-    stress_level: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     maps_url: Optional[str] = None
@@ -351,7 +320,6 @@ async def twilio_sms_webhook(request: Request) -> Response:
             )
             raise HTTPException(status_code=400, detail="Missing Twilio message fields")
 
-        # Persist incoming message
         message_row_id = persist_text_message(
             target=from_number,
             raw_text=body,
@@ -367,17 +335,90 @@ async def twilio_sms_webhook(request: Request) -> Response:
             to_number,
         )
 
-        # Initialize variables
+        # Get conversation history for this phone number
+        conversation_history = []
+        try:
+            with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT raw_text, direction, created_at
+                        FROM text_message
+                        WHERE target = %s
+                        AND created_at < (SELECT created_at FROM text_message WHERE id = %s)
+                        ORDER BY created_at DESC
+                        LIMIT 10
+                        """,
+                        (from_number, message_row_id),
+                    )
+                    messages = cur.fetchall()
+                    for msg in reversed(messages):
+                        if msg["direction"] == "Inbound":
+                            conversation_history.append(
+                                {"role": "user", "content": msg["raw_text"]}
+                            )
+                        else:
+                            conversation_history.append(
+                                {"role": "assistant", "content": msg["raw_text"]}
+                            )
+        except Exception as e:
+            webhook_logger.error("Failed to get conversation history: %s", e)
+
+        # Process message through the AI agent
+        try:
+            agent = EmergencyAgent(SUPABASE_POSTGRES_URL)
+            user_id = str(uuid.uuid4())
+            response_text, case_id, info = agent.process_message(
+                body, conversation_history, user_id, SUPABASE_POSTGRES_URL
+            )
+        except Exception as e:
+            webhook_logger.exception("agent.process_message failed: %s", e)
+            response_text = "Sorry, we're unable to process your message right now."
+
+        # Limit SMS response to 1600 characters (SMS limit)
+        if len(response_text) > 1600:
+            response_text = response_text[:1597] + "..."
+
+        # Send SMS response
+        try:
+            sms_result = send_sms(from_number, response_text)
+            persist_text_message(
+                target=from_number,
+                raw_text=response_text,
+                direction="Outbound",
+                provider_message_sid=sms_result.message_sid,
+                delivery_status=sms_result.status,
+            )
+            webhook_logger.info(
+                "twilio_sms_response_sent message_sid=%s to_number=%s response_length=%s",
+                sms_result.message_sid,
+                from_number,
+                len(response_text),
+            )
+        except Exception as e:
+            webhook_logger.error("Failed to send SMS response: %s", e)
+        # Check if this is a responder confirming availability
         is_responder_confirmation = False
         response_text = None
         case_id = None
         info = None
 
-        # FIRST: Check if this is a responder confirming availability
+        # Check if sender is a responder and message is a confirmation or status update
         body_upper = body.upper().strip()
-        if body_upper in ["YES", "OK", "ON MY WAY", "COMING", "RESPONDING", "ARRIVED", "AT SCENE", "HERE"]:
+        if body_upper in [
+            "YES",
+            "OK",
+            "ON MY WAY",
+            "COMING",
+            "RESPONDING",
+            "ARRIVED",
+            "AT SCENE",
+            "HERE",
+        ]:
             try:
-                with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+                with psycopg.connect(
+                    SUPABASE_POSTGRES_URL, row_factory=dict_row
+                ) as conn:
                     with conn.cursor() as cur:
                         # Check if this phone number belongs to an active responder
                         cur.execute(
@@ -397,14 +438,25 @@ async def twilio_sms_webhook(request: Request) -> Response:
                         responder = cur.fetchone()
 
                         if responder:
+                            # Debug logging
                             webhook_logger.info(f"Responder found: {responder}")
+                            webhook_logger.info(
+                                f"Responder keys: {responder.keys() if responder else 'None'}"
+                            )
+                            webhook_logger.info(
+                                f"Responder id type: {type(responder.get('id'))}"
+                            )
+
+                            # This is a responder confirming or updating status
                             is_responder_confirmation = True
 
                             # Check if this is an arrival notification
                             is_arrival = body_upper in ["ARRIVED", "AT SCENE", "HERE"]
 
                             # Get responder_id as string
-                            responder_id = str(responder["id"]) if responder.get("id") else None
+                            responder_id = (
+                                str(responder["id"]) if responder.get("id") else None
+                            )
                             webhook_logger.info(f"Using responder_id: {responder_id}")
 
                             # Find the case they were assigned to
@@ -472,10 +524,16 @@ async def twilio_sms_webhook(request: Request) -> Response:
 
                                     # Send arrival confirmation
                                     response_text = f"✅ Arrival confirmed, {responder['name']}!\n\n"
-                                    response_text += "You are now marked as ON SCENE.\n\n"
+                                    response_text += (
+                                        "You are now marked as ON SCENE.\n\n"
+                                    )
                                     response_text += "⚕️ Please provide emergency assistance as needed.\n"
-                                    response_text += "📱 Keep this line open for updates.\n\n"
-                                    response_text += "Thank you for your rapid response!"
+                                    response_text += (
+                                        "📱 Keep this line open for updates.\n\n"
+                                    )
+                                    response_text += (
+                                        "Thank you for your rapid response!"
+                                    )
                                 else:
                                     # Handle initial confirmation
                                     cur.execute(
@@ -504,34 +562,56 @@ async def twilio_sms_webhook(request: Request) -> Response:
                                     conn.commit()
 
                                     # Send confirmation to responder
-                                    response_text = f"✅ Thank you {responder['name']}!\n\n"
-                                    response_text += f"Your response has been confirmed.\n\n"
-                                    response_text += f"📋 Case: {recent_case['title']}\n"
+                                    specialties_str = (
+                                        ", ".join(responder.get("specialties", []))
+                                        if responder.get("specialties")
+                                        else "Responder"
+                                    )
+                                    response_text = (
+                                        f"✅ Thank you {responder['name']}!\n\n"
+                                    )
+                                    response_text += (
+                                        f"Your response has been confirmed.\n\n"
+                                    )
+                                    response_text += (
+                                        f"📋 Case: {recent_case['title']}\n"
+                                    )
                                     response_text += f"📝 Details: {recent_case['summary'][:100]}...\n"
                                     if recent_case.get("distance_km"):
                                         response_text += f"📍 Distance: {recent_case['distance_km']:.1f}km\n"
-                                    response_text += "\n⚡ Please proceed to the location safely.\n"
+                                    response_text += (
+                                        "\n⚡ Please proceed to the location safely.\n"
+                                    )
                                     response_text += "The victim has been notified that help is on the way.\n\n"
-                                    response_text += "Reply 'ARRIVED' when you reach the scene."
+                                    response_text += (
+                                        "Reply 'ARRIVED' when you reach the scene."
+                                    )
 
                                 webhook_logger.info(
-                                    f"Responder {responder['name']} confirmed for case {str(case_id)[:8]}"
+                                    f"Responder {responder['name']} ({specialties_str}) confirmed for case {case_id[:8]}"
                                 )
                             else:
                                 response_text = "Thank you for responding! However, we couldn't find an active emergency case. The situation may have been resolved."
+                        else:
+                            # Not a registered responder, treat as normal message
+                            is_responder_confirmation = False
             except Exception as e:
                 import traceback
+
                 webhook_logger.error(f"Error checking responder status: {e}")
                 webhook_logger.error(f"Full traceback: {traceback.format_exc()}")
                 is_responder_confirmation = False
 
-        # SECOND: If not a responder confirmation, process as normal emergency message
+        # If not a responder confirmation, process as normal emergency message
         if not is_responder_confirmation:
             # Get conversation history for this phone number
             conversation_history = []
             try:
-                with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+                with psycopg.connect(
+                    SUPABASE_POSTGRES_URL, row_factory=dict_row
+                ) as conn:
                     with conn.cursor() as cur:
+                        # Get recent messages from this phone number (limit to last 10 for context)
                         cur.execute(
                             """
                             SELECT raw_text, direction, created_at
@@ -545,7 +625,10 @@ async def twilio_sms_webhook(request: Request) -> Response:
                         )
                         messages = cur.fetchall()
 
-                        for msg in reversed(messages):
+                        # Build conversation history in chronological order
+                        for msg in reversed(
+                            messages
+                        ):  # Reverse to get chronological order
                             if msg["direction"] == "Inbound":
                                 conversation_history.append(
                                     {"role": "user", "content": msg["raw_text"]}
@@ -560,29 +643,39 @@ async def twilio_sms_webhook(request: Request) -> Response:
             # Process message through the AI agent
             try:
                 agent = EmergencyAgent(SUPABASE_POSTGRES_URL)
+
+                # Generate a UUID for user_id, but use phone number for tracking
                 user_id = str(uuid.uuid4())
+                # Store the phone number in the metadata or use it for lookup later
+
+                # Process the message
                 response_text, case_id, info = agent.process_message(
                     body, conversation_history, user_id, SUPABASE_POSTGRES_URL
                 )
             except Exception as e:
-                webhook_logger.exception("agent.process_message failed: %s", e)
+                webhook_logger.error(f"AI agent processing failed: {e}")
+                # Send a fallback message
                 response_text = "Emergency system received your message. If urgent, please call 112."
+                case_id = None
+                info = None
 
-        # THIRD: Send SMS response
+        # Limit SMS response to 1600 characters (SMS limit)
+        if response_text and len(response_text) > 1600:
+            response_text = response_text[:1597] + "..."
+
+        # Send SMS response
         if response_text:
-            # Limit SMS response to 1600 characters
-            if len(response_text) > 1600:
-                response_text = response_text[:1597] + "..."
-
             try:
-                sms_result = send_sms(from_number, response_text)
                 persist_text_message(
                     target=from_number,
                     raw_text=response_text,
                     direction="Outbound",
-                    provider_message_sid=sms_result.message_sid,
-                    delivery_status=sms_result.status,
+                    provider_message_sid=None,
+                    delivery_status="failed",
                 )
+            except Exception:
+                pass
+
                 webhook_logger.info(
                     "twilio_sms_response_sent message_sid=%s to_number=%s response_length=%s",
                     sms_result.message_sid,
@@ -600,11 +693,13 @@ async def twilio_sms_webhook(request: Request) -> Response:
                         provider_message_sid=None,
                         delivery_status="failed",
                     )
-                    webhook_logger.info(f"Response saved despite SMS failure")
+                    webhook_logger.info(
+                        f"Response saved despite SMS failure: {response_text[:100]}..."
+                    )
                 except:
                     pass
 
-        # FOURTH: Log case creation if applicable (only for new emergencies, not responder confirmations)
+        # Log case creation if applicable (only for new emergencies, not responder confirmations)
         if case_id and not is_responder_confirmation:
             persist_event(
                 case_id=case_id,
@@ -618,11 +713,30 @@ async def twilio_sms_webhook(request: Request) -> Response:
             )
 
             # Check if responders were notified
-            if info and info.latitude and info.longitude and info.severity and info.severity >= 3:
+            if (
+                info
+                and info.latitude
+                and info.longitude
+                and info.severity
+                and info.severity >= 3
+            ):
                 webhook_logger.info(
                     "High-severity emergency (level %s) with coordinates, responders may have been notified",
                     info.severity,
                 )
+
+        # Log case creation if applicable
+        if case_id:
+            persist_event(
+                case_id=case_id,
+                description=f"SMS Emergency: {body[:200]}",
+                text_message_id=message_row_id,
+            )
+            webhook_logger.info(
+                "twilio_sms_case_created case_id=%s from_number=%s",
+                case_id,
+                from_number,
+            )
 
         webhook_logger.info("twilio_sms_inbound_processed message_sid=%s", message_sid)
         return Response(
@@ -641,7 +755,6 @@ async def twilio_sms_webhook(request: Request) -> Response:
 
 
 # --- Twilio voice webhook & Media Stream WebSocket ---
-
 
 
 @app.post("/twilio/webhooks/voice")
@@ -701,42 +814,6 @@ async def twilio_voice_websocket(websocket: WebSocket) -> None:
 async def twilio_realtime_voice_websocket(websocket: WebSocket) -> None:
     """Twilio Media Stream bridged to OpenAI Realtime API (low-latency speech-to-speech)."""
     await handle_realtime_voice_stream(websocket)
-
-
-@app.post("/twilio/webhooks/voice/elevenlabs")
-async def twilio_voice_elevenlabs_webhook(request: Request) -> Response:
-    """Answer call with TwiML pointing to the ElevenLabs voice WebSocket stream."""
-    payload: dict[str, str] = {}
-    try:
-        form = await request.form()
-        payload = {k: str(v) for k, v in form.items()}
-        call_sid = payload.get("CallSid", "").strip()
-        from_number = payload.get("From", "").strip()
-        to_number = payload.get("To", "").strip()
-
-        webhook_logger.info("twilio_voice_elevenlabs_inbound call_sid=%s from=%s to=%s", call_sid, from_number, to_number)
-
-        host = request.headers.get("host", "")
-        scheme = "wss" if request.url.scheme == "https" or "https" in request.headers.get("x-forwarded-proto", "") else "ws"
-        ws_url = f"{scheme}://{host}/ws/voice/elevenlabs"
-
-        twiml = build_connect_stream_twiml(
-            ws_url=ws_url,
-            call_sid=call_sid,
-            from_number=from_number,
-            to_number=to_number,
-        )
-        webhook_logger.info("twilio_voice_elevenlabs_connect call_sid=%s ws_url=%s", call_sid, ws_url)
-        return Response(content=twiml, media_type="application/xml", status_code=200)
-    except Exception:
-        webhook_logger.exception("twilio_voice_elevenlabs_webhook_failed payload=%s", json.dumps(payload, ensure_ascii=False))
-        raise
-
-
-@app.websocket("/ws/voice/elevenlabs")
-async def twilio_elevenlabs_voice_websocket(websocket: WebSocket) -> None:
-    """Twilio Media Stream bridged to ElevenLabs Conversational AI (speech-to-speech)."""
-    await handle_elevenlabs_voice_stream(websocket)
 
 
 # --- Messages API ---
@@ -900,68 +977,6 @@ async def create_emergency(
                 conn.commit()
                 return CaseResponse(**case_result)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/emergency/quick/debug")
-async def debug_quick_emergency(request: Request) -> Dict:
-    """Debug endpoint: log the raw body ElevenLabs sends."""
-    body = await request.body()
-    webhook_logger.info("quick_emergency_debug raw_body=%s", body.decode("utf-8", errors="replace")[:2000])
-    return {"received": json.loads(body)}
-
-
-@app.post("/emergency/quick", response_model=CaseResponse)
-async def create_quick_emergency(request: QuickEmergencyRequest) -> CaseResponse:
-    """Create an emergency case with all info provided upfront (geocodes the location automatically)."""
-    try:
-        info = EmergencyInfo(
-            full_name=request.full_name,
-            social_security_number=request.social_security_number,
-            location=request.location,
-            emergency_description=request.emergency_description,
-            category=request.category,
-            severity=request.severity,
-            stress_level=request.stress_level,
-        )
-
-        from geopy.geocoders import GoogleV3
-        from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-        from env import GOOGLE_MAPS_API_KEY, SUPABASE_URL
-
-        def _geocode_and_save() -> dict:
-            lat, lng, maps_url = None, None, None
-            try:
-                geocoder = GoogleV3(api_key=GOOGLE_MAPS_API_KEY)
-                result = geocoder.geocode(info.location)
-                if result:
-                    lat, lng = result.latitude, result.longitude
-                    maps_url = f"https://www.google.com/maps?q={lat},{lng}"
-            except (GeocoderTimedOut, GeocoderServiceError) as e:
-                webhook_logger.warning("quick_emergency_geocode_error: %s", e)
-            except Exception as e:
-                webhook_logger.warning("quick_emergency_geocode_error: %s", e)
-
-            info.latitude = lat
-            info.longitude = lng
-
-            user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"quick-{info.social_security_number}"))
-            agent = EmergencyAgent(SUPABASE_URL)
-            with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
-                case_id = agent.create_case(info, user_id, conn)
-
-                with conn.cursor() as cur:
-                    cur.execute('SELECT * FROM "case" WHERE id = %s', (case_id,))
-                    case_row = cur.fetchone()
-                    case_row["id"] = str(case_row["id"])
-
-            case_row["maps_url"] = maps_url
-            return case_row
-
-        case_row = await asyncio.to_thread(_geocode_and_save)
-        return CaseResponse(**case_row)
-    except Exception as e:
-        webhook_logger.exception("quick_emergency_error")
         raise HTTPException(status_code=500, detail=str(e))
 
 

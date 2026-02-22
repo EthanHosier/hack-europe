@@ -165,6 +165,25 @@ The system now includes full SMS integration with the AI emergency agent:
 - **Conversation Context**: Maintains conversation history per phone number
 - **Emergency Detection**: Automatically creates cases when emergencies are detected
 - **Geocoding**: Extracts and geocodes location information from messages
+- **Responder Notification**: Automatically alerts nearby responders (doctors, EMTs, etc.) for high-severity emergencies
+
+#### Responder Notification System
+
+When a high-severity emergency (level 3+) is detected with location coordinates:
+
+1. **Finds Nearby Helpers**: Searches for active responders within 5km radius
+2. **Matches Specialties**: Prioritizes responders based on emergency type (medical → doctors/nurses, fire → firefighters)
+3. **Sends Alerts**: Notifies up to 3 nearby responders via SMS with emergency details and location
+4. **Tracks Response**: Responders can reply to confirm they're responding
+
+**Setting up responders**:
+```bash
+# Add test responders to database
+cd api && python seed_responders.py
+
+# Test the responder finder
+python test_responder_notification.py
+```
 
 #### Setting Up SMS Integration
 

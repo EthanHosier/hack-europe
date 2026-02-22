@@ -10,6 +10,15 @@ import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
 import type { LiveEventResponse } from "@/api/generated/schemas";
 
+const ALL_INCIDENT_TYPES: Incident["type"][] = [
+  "fire",
+  "medical",
+  "rescue",
+  "disaster",
+  "emergency",
+  "other",
+];
+
 const incidentTypeByCategory: Record<string, Incident["type"]> = {
   medical: "medical",
   rescue: "rescue",
@@ -18,7 +27,7 @@ const incidentTypeByCategory: Record<string, Incident["type"]> = {
   fuel: "emergency",
   shelter: "emergency",
   food_water: "emergency",
-  other: "emergency",
+  other: "other",
 };
 
 function toIncidentSeverity(caseSeverity: number): Incident["severity"] {
@@ -41,7 +50,7 @@ function toIncident(event: LiveEventResponse): Incident {
   const parsedTimestamp = new Date(event.timestamp);
   return {
     id: event.event_id,
-    type: incidentTypeByCategory[event.case_category ?? "other"] ?? "emergency",
+    type: incidentTypeByCategory[event.case_category ?? "other"] ?? "other",
     description: event.description || event.case_title || "Emergency event",
     region: event.case_title || "Unknown region",
     severity: toIncidentSeverity(event.case_severity),
@@ -116,6 +125,8 @@ export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
     null,
   );
+  const [selectedTypes, setSelectedTypes] =
+    useState<Incident["type"][]>(ALL_INCIDENT_TYPES);
   const { data: liveEventsResponse } = useGetLiveEventsEventsLiveGet(
     { limit: 300 },
     {
@@ -129,6 +140,28 @@ export default function App() {
   const incidents = useMemo<Incident[]>(
     () => liveEvents.map(toIncident),
     [liveEvents],
+  );
+  const filteredIncidents = useMemo(
+    () => incidents.filter((incident) => selectedTypes.includes(incident.type)),
+    [incidents, selectedTypes],
+  );
+  const incidentTypeCounts = useMemo<Record<Incident["type"], number>>(
+    () =>
+      incidents.reduce(
+        (acc, incident) => {
+          acc[incident.type] += 1;
+          return acc;
+        },
+        {
+          fire: 0,
+          medical: 0,
+          rescue: 0,
+          disaster: 0,
+          emergency: 0,
+          other: 0,
+        },
+      ),
+    [incidents],
   );
   const queueRef = useRef<IncidentQueueHandle>(null);
 
@@ -144,14 +177,30 @@ export default function App() {
     );
   };
 
+  const handleToggleType = (type: Incident["type"]) => {
+    setSelectedTypes((prev) =>
+      prev.includes(type)
+        ? prev.filter((item) => item !== type)
+        : [...prev, type],
+    );
+  };
+
+  const handleSelectAllTypes = () => {
+    setSelectedTypes(ALL_INCIDENT_TYPES);
+  };
+
+  const handleClearAllTypes = () => {
+    setSelectedTypes([]);
+  };
+
   useEffect(() => {
-    if (incidents.length === 0) {
+    if (filteredIncidents.length === 0) {
       setSelectedIncidentId(null);
       return;
     }
 
     const hasSelectedIncident = selectedIncidentId
-      ? incidents.some((incident) => incident.id === selectedIncidentId)
+      ? filteredIncidents.some((incident) => incident.id === selectedIncidentId)
       : false;
     if (hasSelectedIncident) return;
 
@@ -161,22 +210,23 @@ export default function App() {
       moderate: 2,
       low: 1,
     };
-    const fallback = [...incidents].sort((a, b) => {
+    const fallback = [...filteredIncidents].sort((a, b) => {
       const severityDiff = severityRank[b.severity] - severityRank[a.severity];
       if (severityDiff !== 0) return severityDiff;
       return b.timestamp.getTime() - a.timestamp.getTime();
     })[0];
 
     setSelectedIncidentId(fallback?.id ?? null);
-  }, [incidents, selectedIncidentId]);
+  }, [filteredIncidents, selectedIncidentId]);
 
   const selectedIncident =
-    incidents.find((incident) => incident.id === selectedIncidentId) || null;
+    filteredIncidents.find((incident) => incident.id === selectedIncidentId) ||
+    null;
 
   return (
     <div className="size-full flex flex-col bg-[#0a0e1a] text-[#e8eaed]">
       <TopBar
-        activeIncidents={incidents.length}
+        activeIncidents={filteredIncidents.length}
         activeResponders={
           mockResponders.filter((r) => r.availability === "available").length
         }
@@ -186,13 +236,19 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         <IncidentQueue
           ref={queueRef}
-          incidents={incidents}
+          incidents={filteredIncidents}
           selectedId={selectedIncidentId}
           onSelectIncident={setSelectedIncidentId}
+          incidentTypes={ALL_INCIDENT_TYPES}
+          selectedTypes={selectedTypes}
+          incidentTypeCounts={incidentTypeCounts}
+          onToggleType={handleToggleType}
+          onSelectAllTypes={handleSelectAllTypes}
+          onClearAllTypes={handleClearAllTypes}
         />
 
         <MapView
-          incidents={incidents}
+          incidents={filteredIncidents}
           selectedId={selectedIncidentId}
           onSelectIncident={handleMapSelect}
         />

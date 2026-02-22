@@ -19,6 +19,12 @@ VOICE_STREAM_WS_URL = os.environ.get("VOICE_STREAM_WS_URL")
 # Optional: Google APIs (Gemini, Maps). CI may run without them (e.g. OpenAPI export).
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
+# Optional: OpenAI API key for voice transcription (Whisper).
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+# Optional: ElevenLabs API key for TTS (voice reply on calls).
+ELEVEN_LABS_API_KEY = os.environ.get("ELEVEN_LABS_API_KEY")
+# Optional: ElevenLabs Conversational Agent ID (for voice agent via ElevenLabs).
+ELEVENLABS_AGENT_ID = os.environ.get("ELEVENLABS_AGENT_ID")
 if GOOGLE_API_KEY is not None:
     os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
@@ -34,3 +40,7 @@ if not TWILIO_FROM_NUMBER:
     raise RuntimeError("TWILIO_FROM_NUMBER is required; set it in .env at project root")
 if not WORKFLOW_WEBHOOK_URL:
     raise RuntimeError("WORKFLOW_WEBHOOK_URL is required; set it in .env at project root")
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY is required; set it in .env at project root")
+if not ELEVEN_LABS_API_KEY:
+    raise RuntimeError("ELEVEN_LABS_API_KEY is required; set it in .env at project root")

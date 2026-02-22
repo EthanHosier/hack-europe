@@ -7,3 +7,9 @@ supabase_url          = ""
 twilio_account_sid  = ""
 twilio_auth_token   = ""
 twilio_from_number  = ""
+
+# Optional: OpenAI API key for voice call transcription (Whisper)
+# openai_api_key = ""
+
+# Optional: ElevenLabs API key for TTS (voice reply on calls)
+# eleven_labs_api_key = ""

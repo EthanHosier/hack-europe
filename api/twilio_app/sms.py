@@ -51,12 +51,20 @@ def validate_twilio_signature(
 
 
 def send_sms(to_number: str, body: str) -> SentSmsResult:
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"DEBUG send_sms: Attempting to send SMS to {to_number}, body length: {len(body)}")
+
     client, from_number = get_twilio_client()
     try:
         message = client.messages.create(to=to_number, from_=from_number, body=body)
-    except TwilioRestException:
+        logger.info(f"DEBUG send_sms: Successfully created message sid={message.sid}, status={message.status}")
+    except TwilioRestException as e:
+        logger.error(f"DEBUG send_sms: TwilioRestException - {e}")
         raise
-    return SentSmsResult(
+
+    result = SentSmsResult(
         message_sid=message.sid,
         status=message.status,
         to_number=message.to,
@@ -64,3 +72,6 @@ def send_sms(to_number: str, body: str) -> SentSmsResult:
         error_code=message.error_code,
         error_message=message.error_message,
     )
+
+    logger.info(f"DEBUG send_sms: Returning result with status={result.status}")
+    return result

@@ -105,4 +105,39 @@ variable "twilio_from_number" {
   type        = string
   sensitive   = true
 }
+
+variable "openai_api_key" {
+  description = "OpenAI API key for voice transcription (Whisper). Optional; set in terraform.auto.tfvars."
+  type        = string
+  sensitive   = true
+}
+
+variable "eleven_labs_api_key" {
+  description = "ElevenLabs API key for TTS (voice reply on calls). Optional; set in terraform.auto.tfvars."
+  type        = string
+  sensitive   = true
+}
+
+variable "elevenlabs_agent_id" {
+  description = "ElevenLabs Conversational AI agent ID. Set in terraform.auto.tfvars."
+  type        = string
+}
+
+variable "google_api_key" {
+  description = "Google API key for Gemini AI. Optional; set in terraform.auto.tfvars."
+  type        = string
+  sensitive   = true
+}
+
+variable "google_maps_api_key" {
+  description = "Google Maps API key for geocoding. Optional; set in terraform.auto.tfvars."
+  type        = string
+  sensitive   = true
+}
+
+variable "domain_name" {
+  description = "Root domain registered in Route53 (e.g. hackeurope.click). api.<domain> will point to ALB."
+  type        = string
+  default     = "hackeurope.help"
+}
  
