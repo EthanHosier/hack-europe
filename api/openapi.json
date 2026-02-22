@@ -2166,6 +2166,17 @@
             "type": "array",
             "title": "Skills",
             "default": []
+          },
+          "distance_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Km"
           }
         },
         "type": "object",

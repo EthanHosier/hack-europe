@@ -407,12 +407,10 @@ export function IntelligencePanel({
                                   [responder.id]: "requesting",
                                 }));
                                 onDispatch(responder.id, selectedIncident.id);
-                                setTimeout(() => {
-                                  setDispatchStates((prev) => ({
-                                    ...prev,
-                                    [responder.id]: "dispatched",
-                                  }));
-                                }, 1500);
+                                setDispatchStates((prev) => ({
+                                  ...prev,
+                                  [responder.id]: "dispatched",
+                                }));
                               }}
                               disabled={isBusy}
                               className="w-full h-8 bg-[#1a2332] hover:bg-[#5b8dbf] disabled:hover:bg-[#1a2332] border border-[#2a3441] rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer group"

@@ -3,6 +3,7 @@ HackEurope API: health, SMS/voice webhooks, messages.
 """
 
 import asyncio
+import math
 import json
 import logging
 import uuid
@@ -926,7 +927,16 @@ def search_users_by_speciality(
         r = dict(r)
         r["id"] = str(r["id"])
         r["skills"] = list(r["skills"]) if r.get("skills") else []
-        r["distance_km"] = round(r["distance_km"], 2) if r.get("distance_km") is not None else None
+        # Use RPC distance when present (migration 025); else compute so response is never null
+        if r.get("distance_km") is not None:
+            r["distance_km"] = round(float(r["distance_km"]), 2)
+        elif r.get("latitude") is not None and r.get("longitude") is not None:
+            d_km = math.sqrt(
+                (float(r["latitude"]) - lat) ** 2 + (float(r["longitude"]) - lng) ** 2
+            ) * 111.0
+            r["distance_km"] = round(d_km, 2)
+        else:
+            r["distance_km"] = None
         out.append(UserWithNotifiedResponse(**r))
     return out
 
