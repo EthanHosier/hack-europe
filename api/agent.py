@@ -266,7 +266,7 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
                 if info.latitude and info.longitude
                 else ""
             )
-            event_description = f"Emergency case created\nName: {info.full_name}\nSSN: {info.social_security_number}\nLocation: {info.location}{coords_text}\nEmergency: {info.emergency_description}"
+            event_description = f"{info.emergency_description} {info.location}"
 
             cur.execute(
                 """
