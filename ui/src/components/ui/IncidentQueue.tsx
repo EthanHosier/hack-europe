@@ -253,10 +253,31 @@ export const IncidentQueue = forwardRef<
 
   useImperativeHandle(ref, () => ({
     scrollTo(id: string) {
-      itemRefs.current[id]?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
+      // Determine which collapsed section the incident lives in and expand it
+      const isInPriority = unassigned.some((i) => i.id === id);
+      const isInP2P = p2pIncidents.some((i) => i.id === id);
+
+      let needsExpansion = false;
+      if (isInPriority && !showPriority) {
+        setShowPriority(true);
+        needsExpansion = true;
+      } else if (isInP2P && !showP2P) {
+        setShowP2P(true);
+        needsExpansion = true;
+      }
+
+      const doScroll = () =>
+        itemRefs.current[id]?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+
+      if (needsExpansion) {
+        // Wait two animation frames for React to re-render and mount the card
+        requestAnimationFrame(() => requestAnimationFrame(doScroll));
+      } else {
+        doScroll();
+      }
     },
   }));
 
@@ -270,12 +291,15 @@ export const IncidentQueue = forwardRef<
     [incidents, selectedTypes],
   );
 
-  // Active = not yet completed
+  // Active = not yet completed (unassigned or currently being matched)
   const unassigned = useMemo(
     () =>
       sortBySeverityThenTime(
         filtered.filter(
-          (i) => i.completedAt === null && i.status === "unassigned" && !i.p2p,
+          (i) =>
+            i.completedAt === null &&
+            (i.status === "unassigned" || i.status === "matching") &&
+            !i.p2p,
         ),
       ),
     [filtered],
@@ -285,7 +309,10 @@ export const IncidentQueue = forwardRef<
     () =>
       sortBySeverityThenTime(
         filtered.filter(
-          (i) => i.completedAt === null && i.status === "unassigned" && i.p2p,
+          (i) =>
+            i.completedAt === null &&
+            (i.status === "unassigned" || i.status === "matching") &&
+            i.p2p,
         ),
       ),
     [filtered],
