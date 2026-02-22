@@ -252,6 +252,88 @@
         }
       }
     },
+    "/users/search-by-speciality": {
+      "post": {
+        "summary": "Search Users By Speciality",
+        "description": "Find users with specialties closest by geographical + semantic distance. Generates embedding for query. Optionally pass case_id to get notified_for_case per user.",
+        "operationId": "search_users_by_speciality_users_search_by_speciality_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchUsersBySpecialityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserWithNotifiedResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Search Users By Speciality Users Search By Speciality Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cases/dispatch-case-to-user": {
+      "post": {
+        "summary": "Dispatch Case To User",
+        "description": "Assign a case to a user: UPSERT responder_assignment and send SMS with case description.",
+        "operationId": "dispatch_case_to_user_cases_dispatch_case_to_user_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchCaseToUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchCaseToUserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/emergency": {
       "post": {
         "summary": "Create Emergency",
@@ -1180,6 +1262,53 @@
         ],
         "title": "DbHealthResponse"
       },
+      "DispatchCaseToUserRequest": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "title": "Case Id"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "user_id"
+        ],
+        "title": "DispatchCaseToUserRequest"
+      },
+      "DispatchCaseToUserResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "assignment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignment Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "DispatchCaseToUserResponse"
+      },
       "EmergencyRequest": {
         "properties": {
           "message": {
@@ -1684,6 +1813,45 @@
         ],
         "title": "RootResponse"
       },
+      "SearchUsersBySpecialityRequest": {
+        "properties": {
+          "lat": {
+            "type": "number",
+            "title": "Lat"
+          },
+          "lng": {
+            "type": "number",
+            "title": "Lng"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "max_match_count": {
+            "type": "integer",
+            "title": "Max Match Count",
+            "default": 10
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lat",
+          "lng",
+          "query"
+        ],
+        "title": "SearchUsersBySpecialityRequest"
+      },
       "SendSmsRequest": {
         "properties": {
           "to": {
@@ -1924,6 +2092,77 @@
           "status"
         ],
         "title": "UserResponse"
+      },
+      "UserWithNotifiedResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          },
+          "notified_for_case": {
+            "type": "boolean",
+            "title": "Notified For Case",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "phone",
+          "role",
+          "status"
+        ],
+        "title": "UserWithNotifiedResponse"
       },
       "ValidationError": {
         "properties": {
