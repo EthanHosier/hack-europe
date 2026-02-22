@@ -185,6 +185,7 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden">
         <IncidentQueue
+          ref={queueRef}
           incidents={incidents}
           selectedId={selectedIncidentId}
           onSelectIncident={setSelectedIncidentId}
