@@ -275,6 +275,7 @@ resource "aws_ecs_task_definition" "main" {
         { name = "WORKFLOW_WEBHOOK_URL", value = "https://${aws_cloudfront_distribution.main.domain_name}/twilio/webhooks" },
         { name = "OPENAI_API_KEY", value = var.openai_api_key },
         { name = "ELEVEN_LABS_API_KEY", value = var.eleven_labs_api_key },
+        { name = "ELEVENLABS_AGENT_ID", value = var.elevenlabs_agent_id },
         { name = "GOOGLE_API_KEY", value = var.google_api_key },
         { name = "GOOGLE_MAPS_API_KEY", value = var.google_maps_api_key },
         { name = "VOICE_STREAM_WS_URL", value = "wss://api.${var.domain_name}/ws/voice/realtime" },

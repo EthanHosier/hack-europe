@@ -2,6 +2,7 @@
 HackEurope API: health, SMS/voice webhooks, messages.
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -13,7 +14,7 @@ from psycopg.rows import dict_row
 from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from twilio.base.exceptions import TwilioRestException
 
 from env import SUPABASE_POSTGRES_URL, VOICE_STREAM_WS_URL
@@ -23,6 +24,7 @@ from twilio_app import (
     TwilioConfigError,
     build_connect_stream_twiml,
     build_say_hangup_twiml,
+    handle_elevenlabs_voice_stream,
     handle_realtime_voice_stream,
     handle_voice_media_stream,
     send_sms,
@@ -120,6 +122,23 @@ class EmergencyRequest(BaseModel):
     location: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+
+
+class QuickEmergencyRequest(BaseModel):
+    full_name: str
+    social_security_number: str
+    location: str
+    emergency_description: str
+    category: Literal["fuel", "medical", "shelter", "food_water", "rescue", "other"] = "other"
+    severity: int = 3
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def coerce_severity(cls, v: object) -> int:
+        v = int(v)
+        if v < 1 or v > 5:
+            raise ValueError("severity must be between 1 and 5")
+        return v
 
 
 class CaseResponse(BaseModel):
@@ -467,6 +486,42 @@ async def twilio_realtime_voice_websocket(websocket: WebSocket) -> None:
     await handle_realtime_voice_stream(websocket)
 
 
+@app.post("/twilio/webhooks/voice/elevenlabs")
+async def twilio_voice_elevenlabs_webhook(request: Request) -> Response:
+    """Answer call with TwiML pointing to the ElevenLabs voice WebSocket stream."""
+    payload: dict[str, str] = {}
+    try:
+        form = await request.form()
+        payload = {k: str(v) for k, v in form.items()}
+        call_sid = payload.get("CallSid", "").strip()
+        from_number = payload.get("From", "").strip()
+        to_number = payload.get("To", "").strip()
+
+        webhook_logger.info("twilio_voice_elevenlabs_inbound call_sid=%s from=%s to=%s", call_sid, from_number, to_number)
+
+        host = request.headers.get("host", "")
+        scheme = "wss" if request.url.scheme == "https" or "https" in request.headers.get("x-forwarded-proto", "") else "ws"
+        ws_url = f"{scheme}://{host}/ws/voice/elevenlabs"
+
+        twiml = build_connect_stream_twiml(
+            ws_url=ws_url,
+            call_sid=call_sid,
+            from_number=from_number,
+            to_number=to_number,
+        )
+        webhook_logger.info("twilio_voice_elevenlabs_connect call_sid=%s ws_url=%s", call_sid, ws_url)
+        return Response(content=twiml, media_type="application/xml", status_code=200)
+    except Exception:
+        webhook_logger.exception("twilio_voice_elevenlabs_webhook_failed payload=%s", json.dumps(payload, ensure_ascii=False))
+        raise
+
+
+@app.websocket("/ws/voice/elevenlabs")
+async def twilio_elevenlabs_voice_websocket(websocket: WebSocket) -> None:
+    """Twilio Media Stream bridged to ElevenLabs Conversational AI (speech-to-speech)."""
+    await handle_elevenlabs_voice_stream(websocket)
+
+
 # --- Messages API ---
 
 
@@ -628,6 +683,67 @@ async def create_emergency(
                 conn.commit()
                 return CaseResponse(**case_result)
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/emergency/quick/debug")
+async def debug_quick_emergency(request: Request) -> Dict:
+    """Debug endpoint: log the raw body ElevenLabs sends."""
+    body = await request.body()
+    webhook_logger.info("quick_emergency_debug raw_body=%s", body.decode("utf-8", errors="replace")[:2000])
+    return {"received": json.loads(body)}
+
+
+@app.post("/emergency/quick", response_model=CaseResponse)
+async def create_quick_emergency(request: QuickEmergencyRequest) -> CaseResponse:
+    """Create an emergency case with all info provided upfront (geocodes the location automatically)."""
+    try:
+        info = EmergencyInfo(
+            full_name=request.full_name,
+            social_security_number=request.social_security_number,
+            location=request.location,
+            emergency_description=request.emergency_description,
+            category=request.category,
+            severity=request.severity,
+        )
+
+        from geopy.geocoders import GoogleV3
+        from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+        from env import GOOGLE_MAPS_API_KEY, SUPABASE_URL
+
+        def _geocode_and_save() -> dict:
+            lat, lng, maps_url = None, None, None
+            try:
+                geocoder = GoogleV3(api_key=GOOGLE_MAPS_API_KEY)
+                result = geocoder.geocode(info.location)
+                if result:
+                    lat, lng = result.latitude, result.longitude
+                    maps_url = f"https://www.google.com/maps?q={lat},{lng}"
+            except (GeocoderTimedOut, GeocoderServiceError) as e:
+                webhook_logger.warning("quick_emergency_geocode_error: %s", e)
+            except Exception as e:
+                webhook_logger.warning("quick_emergency_geocode_error: %s", e)
+
+            info.latitude = lat
+            info.longitude = lng
+
+            user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"quick-{info.social_security_number}"))
+            agent = EmergencyAgent(SUPABASE_URL)
+            with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+                case_id = agent.create_case(info, user_id, conn)
+
+                with conn.cursor() as cur:
+                    cur.execute('SELECT * FROM "case" WHERE id = %s', (case_id,))
+                    case_row = cur.fetchone()
+                    case_row["id"] = str(case_row["id"])
+
+            case_row["maps_url"] = maps_url
+            return case_row
+
+        case_row = await asyncio.to_thread(_geocode_and_save)
+        return CaseResponse(**case_row)
+    except Exception as e:
+        webhook_logger.exception("quick_emergency_error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
