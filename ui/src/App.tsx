@@ -62,6 +62,11 @@ function toIncident(event: LiveEventResponse): Incident {
     lat: event.latitude,
     lng: event.longitude,
     completedAt: event.completed_at ? new Date(event.completed_at) : null,
+    p2p: event.p2p ?? false,
+    confidence: event.confidence ?? null,
+    requiredCapability: event.required_capability ?? null,
+    parsedNeedType: event.parsed_need_type ?? null,
+    recommendedAction: event.recommended_action ?? null,
   };
 }
 
