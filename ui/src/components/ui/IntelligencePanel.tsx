@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Brain, CheckCircle, ChevronLeft, ChevronRight, Navigation, Send, Shield } from "lucide-react";
+import {
+  Brain,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  Navigation,
+  Send,
+  Shield,
+} from "lucide-react";
 import type { Incident } from "./IncidentQueue";
 
 interface Responder {
@@ -16,6 +24,8 @@ interface IntelligencePanelProps {
   selectedIncident: Incident | null;
   responders: Responder[];
   onDispatch: (responderId: string, incidentId: string) => void;
+  onMarkResolved?: (incidentId: string) => void;
+  isResolving?: boolean;
 }
 
 const availabilityColors = {
@@ -34,6 +44,8 @@ export function IntelligencePanel({
   selectedIncident,
   responders,
   onDispatch,
+  onMarkResolved,
+  isResolving = false,
 }: IntelligencePanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -179,7 +191,7 @@ export function IntelligencePanel({
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto pb-16">
           {responders.map((responder) => {
             const VerificationIcon =
               verificationIcons[responder.verificationLevel];
@@ -259,6 +271,22 @@ export function IntelligencePanel({
           })}
         </div>
       </div>
+
+      {/* Resolve button */}
+      {!selectedIncident.completedAt && onMarkResolved && (
+        <div className="border-t border-[#1e2530] p-4">
+          <button
+            onClick={() => onMarkResolved(selectedIncident.id)}
+            disabled={isResolving}
+            className="w-full h-10 bg-[#1a2332] hover:bg-[#253344] border border-[#2a3441] rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+          >
+            <CheckCircle className="w-4 h-4 text-[#5b8dbf] group-hover:text-[#7ea8d1] transition-colors" />
+            <span className="text-[12px] text-[#5b8dbf] group-hover:text-[#7ea8d1] uppercase tracking-wider font-medium transition-colors">
+              {isResolving ? "Resolving…" : "Mark as Resolved"}
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
 import type { LiveEventResponse } from "@/api/generated/schemas";
+import { useCompleteCase } from "@/lib/useCompleteCase";
 
 const ALL_INCIDENT_TYPES: Incident["type"][] = [
   "fire",
@@ -128,6 +129,9 @@ export default function App() {
   );
   const [selectedTypes, setSelectedTypes] =
     useState<Incident["type"][]>(ALL_INCIDENT_TYPES);
+
+  const { completeCase, isResolving } = useCompleteCase();
+
   const { data: liveEventsResponse } = useGetLiveEventsEventsLiveGet(
     { limit: 300 },
     {
@@ -169,6 +173,12 @@ export default function App() {
   const handleMapSelect = (id: string) => {
     setSelectedIncidentId(id);
     queueRef.current?.scrollTo(id);
+  };
+
+  const handleMarkResolved = (incidentId: string) => {
+    const caseId = liveEvents.find((ev) => ev.event_id === incidentId)?.case_id;
+    if (!caseId) return;
+    completeCase({ caseId });
   };
 
   const handleDispatch = (responderId: string, incidentId: string) => {
@@ -258,6 +268,8 @@ export default function App() {
           selectedIncident={selectedIncident}
           responders={mockResponders}
           onDispatch={handleDispatch}
+          onMarkResolved={handleMarkResolved}
+          isResolving={isResolving}
         />
       </div>
     </div>
