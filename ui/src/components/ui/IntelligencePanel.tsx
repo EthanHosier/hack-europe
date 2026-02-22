@@ -20,6 +20,7 @@ interface Responder {
   availability: "available" | "on-call" | "busy";
   verificationLevel: "verified" | "pending" | "unverified";
   skills: string[];
+  acceptedForCase: boolean;
 }
 
 interface IntelligencePanelProps {
@@ -337,17 +338,22 @@ export function IntelligencePanel({
                         >
                           <div className="flex items-start justify-between mb-2">
                             <div>
-                              <div className="flex items-center gap-2 mb-1">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 <span className="text-[13px] text-[#e8eaed] font-[500]">
                                   {responder.name}
                                 </span>
                                 <VerificationIcon
-                                  className={`w-3.5 h-3.5 ${
+                                  className={`w-3.5 h-3.5 shrink-0 ${
                                     responder.verificationLevel === "verified"
                                       ? "text-[#3d7a5e]"
                                       : "text-[#6b7280]"
                                   }`}
                                 />
+                                {responder.acceptedForCase && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#3d7a5e]/20 text-[#3d7a5e] font-[500] uppercase tracking-wider">
+                                    Accepted
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[11px] text-[#6b7280]">
                                 {responder.role}

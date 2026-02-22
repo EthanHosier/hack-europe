@@ -25,6 +25,7 @@ type ResponderCandidate = {
   availability: "available" | "on-call" | "busy";
   verificationLevel: "verified" | "pending" | "unverified";
   skills: string[];
+  acceptedForCase: boolean;
 };
 
 function mapSearchRespondersToCandidates(
@@ -35,6 +36,7 @@ function mapSearchRespondersToCandidates(
     status?: string;
     skills?: string[];
     distance_km?: number | null;
+    accepted_for_case?: boolean;
   }>
 ): ResponderCandidate[] {
   return users.map((u) => ({
@@ -45,6 +47,7 @@ function mapSearchRespondersToCandidates(
     availability: u.status === "Active" ? "available" : ("on-call" as const),
     verificationLevel: "verified" as const,
     skills: Array.isArray(u.skills) ? u.skills : [],
+    acceptedForCase: Boolean(u.accepted_for_case),
   }));
 }
 
@@ -88,6 +91,7 @@ function toIncident(event: LiveEventResponse): Incident {
   const parsedTimestamp = new Date(event.timestamp);
   return {
     id: event.event_id,
+    caseId: event.case_id,
     type: incidentTypeByCategory[event.case_category ?? "other"] ?? "other",
     description: event.description || event.case_title || "Emergency event",
     region: event.case_title || "Unknown region",
@@ -338,7 +342,7 @@ export default function App() {
           lng: String(incident.lng),
           query,
           max_match_count: "10",
-          ...(incident.id ? { case_id: incident.id } : {}),
+          ...(incident.caseId ? { case_id: incident.caseId } : {}),
         });
         const base = API_BASE.replace(/\/$/, "");
         const url = `${base || ""}/api/users/search-by-speciality?${params}`;
