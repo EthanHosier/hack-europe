@@ -34,7 +34,12 @@ export interface Incident {
   status: "unassigned" | "matching" | "assigned";
   lat: number;
   lng: number;
-  completedAt: Date | null; // from doc13
+  completedAt: Date | null;
+  p2p: boolean;
+  confidence: number | null;
+  requiredCapability: string | null;
+  parsedNeedType: string | null;
+  recommendedAction: string | null;
 }
 
 interface IncidentQueueProps {
