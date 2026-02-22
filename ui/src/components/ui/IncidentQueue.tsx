@@ -260,7 +260,7 @@ export const IncidentQueue = forwardRef<
     () =>
       sortBySeverityThenTime(
         filtered.filter(
-          (i) => i.completedAt === null && i.status === "unassigned",
+          (i) => i.completedAt === null && i.status === "unassigned" && !i.p2p,
         ),
       ),
     [filtered],
@@ -270,7 +270,7 @@ export const IncidentQueue = forwardRef<
     () =>
       sortBySeverityThenTime(
         filtered.filter(
-          (i) => i.completedAt === null && i.status === "matching",
+          (i) => i.completedAt === null && i.status === "unassigned" && i.p2p,
         ),
       ),
     [filtered],
@@ -521,7 +521,7 @@ export const IncidentQueue = forwardRef<
 
             {unassigned.length === 0 ? (
               <div className="px-4 py-10 text-center text-[12px] text-[#4a4a5a]">
-                No active incidents
+                No active incidents requiring action
               </div>
             ) : (
               unassigned.map((i) => renderCard(i))
@@ -550,7 +550,7 @@ export const IncidentQueue = forwardRef<
             {showP2P &&
               (p2pIncidents.length === 0 ? (
                 <div className="px-4 py-4 text-center text-[12px] text-[#4a4a5a] border-b border-[#1e2530]">
-                  No active P2P coordination
+                  No active incidents in peer-to-peer coordination
                 </div>
               ) : (
                 p2pIncidents.map((i) => renderCard(i))
