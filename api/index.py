@@ -574,7 +574,8 @@ async def twilio_sms_webhook(request: Request) -> Response:
                 agent = EmergencyAgent(SUPABASE_POSTGRES_URL)
                 user_id = str(uuid.uuid4())
                 response_text, case_id, info = agent.process_message(
-                    body, conversation_history, user_id, SUPABASE_POSTGRES_URL
+                    body, conversation_history, user_id, SUPABASE_POSTGRES_URL,
+                    phone_number=from_number,
                 )
             except Exception as e:
                 webhook_logger.exception("agent.process_message failed: %s", e)

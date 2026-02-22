@@ -35,11 +35,13 @@ class EmergencyInfo(BaseModel):
     category: Optional[str] = None  # fuel, medical, shelter, etc.
     severity: Optional[int] = 3  # 1-5 scale
     stress_level: Optional[str] = None  # Low, Medium, High
+    phone_number: Optional[str] = None
     p2p: bool = False
     confidence: Optional[int] = None
     required_capability: Optional[str] = None
     parsed_need_type: Optional[str] = None
     recommended_action: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
 class EmergencyAgent:
@@ -273,19 +275,20 @@ Return ONLY valid JSON, no markdown."""
                 # Create user with info we have including coordinates
                 cur.execute(
                     """
-                    INSERT INTO "user" (id, name, phone, role, status, location, latitude, longitude)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO "user" (id, name, phone, role, status, location, latitude, longitude, has_real_number)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
                     """,
                     (
                         user_id,
                         info.full_name or "Unknown",
-                        info.social_security_number or "Unknown",
+                        info.phone_number,
                         "Victim",
                         "Active",
                         info.location,
                         info.latitude,
                         info.longitude,
+                        info.phone_number is not None,
                     ),
                 )
 
@@ -368,7 +371,8 @@ Return ONLY valid JSON, no markdown."""
             return case_id
 
     def process_message(
-        self, message: str, conversation_history: List[Dict], user_id: str, db_url: str
+        self, message: str, conversation_history: List[Dict], user_id: str, db_url: str,
+        phone_number: str | None = None,
     ) -> Tuple[str, Optional[str], Optional[EmergencyInfo]]:
         """Process a message and return response, case_id if created, and extracted info"""
         # Build message history for the LLM
@@ -407,6 +411,7 @@ Return ONLY valid JSON, no markdown."""
         case_id = None
         responder_notification = None
         if self.should_create_case(info):
+            info.phone_number = phone_number
             info = self.analyse_emergency(info)
             try:
                 with psycopg.connect(db_url, row_factory=dict_row) as conn:
