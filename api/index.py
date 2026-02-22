@@ -159,6 +159,7 @@ class CaseResponse(BaseModel):
     severity: int
     status: str
     category: Optional[str] = None
+    stress_level: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     maps_url: Optional[str] = None

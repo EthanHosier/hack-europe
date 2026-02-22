@@ -118,6 +118,23 @@
         }
       }
     },
+    "/twilio/webhooks/voice/elevenlabs": {
+      "post": {
+        "summary": "Twilio Voice Elevenlabs Webhook",
+        "description": "Answer call with TwiML pointing to the ElevenLabs voice WebSocket stream.",
+        "operationId": "twilio_voice_elevenlabs_webhook_twilio_webhooks_voice_elevenlabs_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/messages/send": {
       "post": {
         "summary": "Send Message",
@@ -260,6 +277,66 @@
               }
             }
           }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/emergency/quick/debug": {
+      "post": {
+        "summary": "Debug Quick Emergency",
+        "description": "Debug endpoint: log the raw body ElevenLabs sends.",
+        "operationId": "debug_quick_emergency_emergency_quick_debug_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Debug Quick Emergency Emergency Quick Debug Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/emergency/quick": {
+      "post": {
+        "summary": "Create Quick Emergency",
+        "description": "Create an emergency case with all info provided upfront (geocodes the location automatically).",
+        "operationId": "create_quick_emergency_emergency_quick_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuickEmergencyRequest"
+              }
+            }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -854,6 +931,17 @@
             ],
             "title": "Category"
           },
+          "stress_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stress Level"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -1229,6 +1317,68 @@
           "created_at"
         ],
         "title": "MessageResponse"
+      },
+      "QuickEmergencyRequest": {
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "social_security_number": {
+            "type": "string",
+            "title": "Social Security Number"
+          },
+          "location": {
+            "type": "string",
+            "title": "Location"
+          },
+          "emergency_description": {
+            "type": "string",
+            "title": "Emergency Description"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "fuel",
+              "medical",
+              "shelter",
+              "food_water",
+              "rescue",
+              "other"
+            ],
+            "title": "Category",
+            "default": "other"
+          },
+          "severity": {
+            "type": "integer",
+            "title": "Severity",
+            "default": 3
+          },
+          "stress_level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "Low",
+                  "Medium",
+                  "High"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stress Level"
+          }
+        },
+        "type": "object",
+        "required": [
+          "full_name",
+          "social_security_number",
+          "location",
+          "emergency_description"
+        ],
+        "title": "QuickEmergencyRequest"
       },
       "ResourceResponse": {
         "properties": {
