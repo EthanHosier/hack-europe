@@ -191,7 +191,7 @@ export default function App() {
   const [queueViewMode, setQueueViewMode] = useState<"active" | "historical">(
     "active"
   );
-  const [dispatchedByIncident, setDispatchedByIncident] = useState<
+  const [dispatchedByIncident, _setDispatchedByIncident] = useState<
     Record<string, string[]>
   >({});
   const [respondersForPanel, setRespondersForPanel] = useState<
