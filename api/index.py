@@ -17,7 +17,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
 from twilio.base.exceptions import TwilioRestException
 
-from env import SUPABASE_POSTGRES_URL, VOICE_STREAM_WS_URL
+from env import OPENAI_API_KEY, SUPABASE_POSTGRES_URL, VOICE_STREAM_WS_URL
 from workflow_bridge import build_inbound_event, handle_inbound_message
 from db import persist_event, persist_text_message
 from twilio_app import (
@@ -100,6 +100,13 @@ class UserResponse(BaseModel):
     location: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+
+
+class SearchUsersBySpecialityRequest(BaseModel):
+    lat: float
+    lng: float
+    query: str
+    max_match_count: int = 10
 
 
 class MessageCreate(BaseModel):
@@ -861,6 +868,40 @@ async def get_current_user(user_id: str = Header(alias="X-User-Id")) -> UserResp
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/users/search-by-speciality", response_model=List[UserResponse])
+def search_users_by_speciality(body: SearchUsersBySpecialityRequest) -> List[UserResponse]:
+    """Find users with specialties closest by geographical + semantic distance. Generates embedding for query."""
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not set")
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        resp = client.embeddings.create(
+            input=body.query,
+            model="text-embedding-3-small",
+        )
+        embedding = resp.data[0].embedding
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Embedding failed: {e}")
+    vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
+    try:
+        with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT * FROM search_users_by_embedding_and_location(%s::vector, %s, %s, %s)""",
+                    (vec_str, body.lat, body.lng, body.max_match_count),
+                )
+                rows = cur.fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    out = []
+    for r in rows:
+        r = dict(r)
+        r["id"] = str(r["id"])
+        out.append(UserResponse(**r))
+    return out
 
 
 # Emergency Request Endpoint
