@@ -302,8 +302,8 @@ export const IncidentQueue = forwardRef<
           (i) =>
             i.completedAt === null &&
             (i.status === "unassigned" || i.status === "matching") &&
-            !i.p2p,
-        ),
+            !i.p2p
+        )
       ),
     [filtered]
   );
@@ -315,8 +315,8 @@ export const IncidentQueue = forwardRef<
           (i) =>
             i.completedAt === null &&
             (i.status === "unassigned" || i.status === "matching") &&
-            i.p2p,
-        ),
+            i.p2p
+        )
       ),
     [filtered]
   );
@@ -465,7 +465,9 @@ export const IncidentQueue = forwardRef<
             role="button"
             tabIndex={0}
             onClick={() => setFilterOpen((o) => !o)}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setFilterOpen((o) => !o); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") setFilterOpen((o) => !o);
+            }}
             className="w-full cursor-pointer rounded border border-[#2a3340] bg-[#141825] px-2 py-2 text-[11px] text-[#c5cad3]"
           >
             <div className="flex items-center gap-2">
@@ -502,7 +504,9 @@ export const IncidentQueue = forwardRef<
                 </button>
               )}
               <ChevronDown
-                className={`h-3.5 w-3.5 text-[#7b8798] transition-transform ${filterOpen ? "rotate-180" : ""}`}
+                className={`h-3.5 w-3.5 text-[#7b8798] transition-transform ${
+                  filterOpen ? "rotate-180" : ""
+                }`}
               />
             </div>
           </div>
