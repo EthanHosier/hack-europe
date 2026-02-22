@@ -118,6 +118,11 @@ variable "eleven_labs_api_key" {
   sensitive   = true
 }
 
+variable "elevenlabs_agent_id" {
+  description = "ElevenLabs Conversational AI agent ID. Set in terraform.auto.tfvars."
+  type        = string
+}
+
 variable "google_api_key" {
   description = "Google API key for Gemini AI. Optional; set in terraform.auto.tfvars."
   type        = string

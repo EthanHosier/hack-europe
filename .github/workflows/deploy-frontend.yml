@@ -63,6 +63,7 @@ jobs:
           OPENAI_API_KEY: placeholder
           ELEVEN_LABS_API_KEY: placeholder
           VOICE_STREAM_WS_URL: placeholder
+          ELEVENLABS_AGENT_ID: placeholder
         run: |
           cd api && python export_openapi.py && cd ..
 

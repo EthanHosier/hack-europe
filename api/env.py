@@ -23,6 +23,8 @@ GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 # Optional: ElevenLabs API key for TTS (voice reply on calls).
 ELEVEN_LABS_API_KEY = os.environ.get("ELEVEN_LABS_API_KEY")
+# Optional: ElevenLabs Conversational Agent ID (for voice agent via ElevenLabs).
+ELEVENLABS_AGENT_ID = os.environ.get("ELEVENLABS_AGENT_ID")
 if GOOGLE_API_KEY is not None:
     os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
