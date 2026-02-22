@@ -9,6 +9,7 @@ import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
 import type { LiveEventResponse } from "@/api/generated/schemas";
+import { customFetch } from "@/api/mutator/custom-fetch";
 
 const ALL_INCIDENT_TYPES: Incident["type"][] = [
   "fire",
@@ -40,8 +41,12 @@ function toIncidentSeverity(caseSeverity: number): Incident["severity"] {
 function toIncidentStatus(caseStatus: string): Incident["status"] {
   const normalized = caseStatus.toLowerCase();
   if (normalized.includes("progress")) return "matching";
-  if (normalized.includes("resolved") || normalized.includes("closed")) {
-    return "assigned";
+  if (
+    normalized.includes("resolved") ||
+    normalized.includes("closed") ||
+    normalized.includes("completed")
+  ) {
+    return "completed";
   }
   return "unassigned";
 }
@@ -50,6 +55,7 @@ function toIncident(event: LiveEventResponse): Incident {
   const parsedTimestamp = new Date(event.timestamp);
   return {
     id: event.event_id,
+    caseId: event.case_id,
     type: incidentTypeByCategory[event.case_category ?? "other"] ?? "other",
     description: event.description || event.case_title || "Emergency event",
     region: event.case_title || "Unknown region",
@@ -127,7 +133,9 @@ export default function App() {
   );
   const [selectedTypes, setSelectedTypes] =
     useState<Incident["type"][]>(ALL_INCIDENT_TYPES);
-  const { data: liveEventsResponse } = useGetLiveEventsEventsLiveGet(
+  const [isCompletingCase, setIsCompletingCase] = useState(false);
+  const { data: liveEventsResponse, refetch: refetchLiveEvents } =
+    useGetLiveEventsEventsLiveGet(
     { limit: 300 },
     {
       query: {
@@ -176,6 +184,26 @@ export default function App() {
     console.log(
       `Dispatching responder ${responderId} to incident ${incidentId}`,
     );
+  };
+
+  const handleCompleteCase = async (incident: Incident) => {
+    if (!incident.caseId || isCompletingCase) return;
+    try {
+      setIsCompletingCase(true);
+      const response = await customFetch<{ success: boolean; status: string }>({
+        url: `/api/cases/${incident.caseId}/complete`,
+        method: "POST",
+        data: { message: "Case marked as completed by dispatcher" },
+      });
+      if (response.status >= 400) {
+        throw new Error(`Case completion failed: ${response.status}`);
+      }
+      await refetchLiveEvents();
+    } catch (error) {
+      console.error("Failed to complete case", error);
+    } finally {
+      setIsCompletingCase(false);
+    }
   };
 
   const handleToggleType = (type: Incident["type"]) => {
@@ -256,6 +284,8 @@ export default function App() {
           selectedIncident={selectedIncident}
           responders={mockResponders}
           onDispatch={handleDispatch}
+          onCompleteCase={handleCompleteCase}
+          isCompletingCase={isCompletingCase}
         />
       </div>
     </div>

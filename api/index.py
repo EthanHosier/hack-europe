@@ -138,6 +138,10 @@ class RespondToCaseRequest(BaseModel):
     message: Optional[str] = "I can help with this emergency"
 
 
+class CompleteCaseRequest(BaseModel):
+    message: Optional[str] = "Case marked as completed"
+
+
 # AI Chat Models
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
@@ -888,6 +892,48 @@ async def respond_to_case(
 
                 conn.commit()
                 return {"success": True, "message": "Successfully responded to case"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cases/{case_id}/complete", response_model=Dict)
+async def complete_case(case_id: str, request: CompleteCaseRequest) -> Dict:
+    """Mark a case as completed (stored as Resolved in DB enum)."""
+    try:
+        with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
+            with conn.cursor() as cur:
+                now = datetime.utcnow()
+                cur.execute(
+                    """
+                    UPDATE "case"
+                    SET status = 'Resolved', updated_at = %s
+                    WHERE id = %s
+                    RETURNING id
+                    """,
+                    (now, case_id),
+                )
+                updated = cur.fetchone()
+                if not updated:
+                    raise HTTPException(status_code=404, detail="Case not found")
+
+                event_id = str(uuid.uuid4())
+                cur.execute(
+                    """
+                    INSERT INTO event (id, case_id, timestamp, description)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (
+                        event_id,
+                        case_id,
+                        now,
+                        request.message or "Case marked as completed",
+                    ),
+                )
+
+                conn.commit()
+                return {"success": True, "status": "completed"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

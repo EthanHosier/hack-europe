@@ -18,9 +18,17 @@ from voice_agent import VoiceAgent
 import psycopg
 from agent import EmergencyAgent
 
-_voice_agent = VoiceAgent()
-
 webhook_logger = logging.getLogger("uvicorn.error")
+try:
+    _voice_agent = VoiceAgent()
+    _voice_agent_init_error: Exception | None = None
+except Exception as exc:
+    _voice_agent = None
+    _voice_agent_init_error = exc
+    webhook_logger.warning(
+        "voice_agent_disabled reason=%s",
+        exc,
+    )
 
 # Log when this many consecutive silent chunks (~50 chunks/sec → 50 ≈ 1 sec, 100 ≈ 2 sec)
 SILENCE_CHUNKS_FOR_LOG = 50
@@ -240,12 +248,20 @@ async def handle_voice_media_stream(websocket: WebSocket) -> None:
                                     if transcript:
                                         loop = asyncio.get_event_loop()
                                         try:
-                                            response_text, info, should_end_call = await loop.run_in_executor(
-                                                None,
-                                                lambda: _voice_agent.process_utterance(
-                                                    transcript, conversation_history
-                                                ),
-                                            )
+                                            if _voice_agent is None:
+                                                response_text = (
+                                                    "Voice AI is unavailable right now. "
+                                                    "Please try again later."
+                                                )
+                                                should_end_call = False
+                                                info = None
+                                            else:
+                                                response_text, info, should_end_call = await loop.run_in_executor(
+                                                    None,
+                                                    lambda: _voice_agent.process_utterance(
+                                                        transcript, conversation_history
+                                                    ),
+                                                )
                                         except Exception:
                                             webhook_logger.exception(
                                                 "voice_ws_agent_error stream_sid=%s", stream_sid

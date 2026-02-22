@@ -3,12 +3,13 @@ import { AlertTriangle, ChevronDown, Clock, Flame, Heart, Home, X, Zap } from "l
 
 export interface Incident {
   id: string;
+  caseId?: string;
   type: "fire" | "medical" | "rescue" | "disaster" | "emergency" | "other";
   description: string;
   region: string;
   severity: "critical" | "high" | "moderate" | "low";
   timestamp: Date;
-  status: "unassigned" | "matching" | "assigned";
+  status: "unassigned" | "matching" | "assigned" | "completed";
   lat: number;
   lng: number;
 }
@@ -47,6 +48,7 @@ const statusLabels = {
   unassigned: "UNASSIGNED",
   matching: "MATCHING",
   assigned: "ASSIGNED",
+  completed: "COMPLETED",
 };
 
 const typeIcons = {
@@ -200,6 +202,7 @@ export const IncidentQueue = forwardRef<IncidentQueueHandle, IncidentQueueProps>
           {incidents.map((incident) => {
             const Icon = typeIcons[incident.type];
             const isSelected = incident.id === selectedId;
+            const isCompleted = incident.status === "completed";
 
             return (
               <div
@@ -212,6 +215,7 @@ export const IncidentQueue = forwardRef<IncidentQueueHandle, IncidentQueueProps>
                     ? "bg-[#1a2332] border-l-2 border-l-[#5b8dbf]"
                     : "hover:bg-[#141825]"
                   }
+                ${isCompleted ? "opacity-60" : ""}
               `}
               >
                 <div className="flex items-start gap-3">
@@ -229,7 +233,7 @@ export const IncidentQueue = forwardRef<IncidentQueueHandle, IncidentQueueProps>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="text-[13px] text-[#e8eaed] leading-tight">
+                      <p className={`text-[13px] leading-tight ${isCompleted ? "text-[#9ca3af]" : "text-[#e8eaed]"}`}>
                         {incident.description}
                       </p>
                     </div>

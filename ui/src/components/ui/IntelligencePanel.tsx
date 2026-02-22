@@ -16,6 +16,8 @@ interface IntelligencePanelProps {
   selectedIncident: Incident | null;
   responders: Responder[];
   onDispatch: (responderId: string, incidentId: string) => void;
+  onCompleteCase: (incident: Incident) => void;
+  isCompletingCase?: boolean;
 }
 
 const availabilityColors = {
@@ -34,6 +36,8 @@ export function IntelligencePanel({
   selectedIncident,
   responders,
   onDispatch,
+  onCompleteCase,
+  isCompletingCase = false,
 }: IntelligencePanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -109,6 +113,22 @@ export function IntelligencePanel({
         </div>
 
         <div className="p-4 space-y-4">
+          <button
+            type="button"
+            onClick={() => onCompleteCase(selectedIncident)}
+            disabled={isCompletingCase || selectedIncident.status === "completed"}
+            className="w-full h-9 bg-[#1d2a3a] hover:bg-[#3d7a5e] disabled:hover:bg-[#1d2a3a] border border-[#2a3441] rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <CheckCircle className="w-4 h-4 text-[#9ca3af]" />
+            <span className="text-[11px] text-[#c9d4df] uppercase tracking-wider font-medium">
+              {selectedIncident.status === "completed"
+                ? "Completed"
+                : isCompletingCase
+                  ? "Completing..."
+                  : "Mark Completed"}
+            </span>
+          </button>
+
           {/* Confidence Score */}
           <div className="bg-[#141825] border border-[#2a3441] rounded p-3">
             <div className="flex items-center justify-between mb-2">

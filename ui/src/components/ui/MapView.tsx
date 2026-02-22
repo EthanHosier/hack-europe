@@ -14,6 +14,7 @@ const severityColors = {
   moderate: "#3B5B8C",
   low: "#4A4A5A",
 } as const;
+const COMPLETED_COLOR = "#6b7280";
 
 const SEVERITY_HEATMAP_WEIGHT: Record<string, number> = {
   critical: 1.0,
@@ -60,6 +61,8 @@ function toIncidentGeoJson(
       properties: {
         id: incident.id,
         severity: incident.severity,
+        status: incident.status,
+        isCompleted: incident.status === "completed",
         heatWeight: SEVERITY_HEATMAP_WEIGHT[incident.severity] ?? 0.2,
       },
     })),
@@ -257,17 +260,22 @@ function addNonClusterLayers(map: mapboxgl.Map, selectedId: string | null) {
     minzoom: HEAT_FADE_START,
     paint: {
       "circle-color": [
-        "match",
-        ["get", "severity"],
-        "critical",
-        severityColors.critical,
-        "high",
-        severityColors.high,
-        "moderate",
-        severityColors.moderate,
-        "low",
-        severityColors.low,
-        severityColors.low,
+        "case",
+        ["==", ["get", "isCompleted"], true],
+        COMPLETED_COLOR,
+        [
+          "match",
+          ["get", "severity"],
+          "critical",
+          severityColors.critical,
+          "high",
+          severityColors.high,
+          "moderate",
+          severityColors.moderate,
+          "low",
+          severityColors.low,
+          severityColors.low,
+        ],
       ],
       "circle-radius": 7,
       "circle-opacity": [
@@ -298,7 +306,11 @@ function addNonClusterLayers(map: mapboxgl.Map, selectedId: string | null) {
     type: "circle",
     source: HEATMAP_SOURCE_ID,
     minzoom: HEAT_FADE_START,
-    filter: ["==", ["get", "severity"], "critical"],
+    filter: [
+      "all",
+      ["==", ["get", "severity"], "critical"],
+      ["!=", ["get", "isCompleted"], true],
+    ],
     paint: {
       "circle-color": severityColors.critical,
       "circle-radius": 12,
@@ -322,17 +334,22 @@ function addNonClusterLayers(map: mapboxgl.Map, selectedId: string | null) {
     filter: ["!", ["has", "point_count"]],
     paint: {
       "circle-color": [
-        "match",
-        ["get", "severity"],
-        "critical",
-        severityColors.critical,
-        "high",
-        severityColors.high,
-        "moderate",
-        severityColors.moderate,
-        "low",
-        severityColors.low,
-        severityColors.low,
+        "case",
+        ["==", ["get", "isCompleted"], true],
+        COMPLETED_COLOR,
+        [
+          "match",
+          ["get", "severity"],
+          "critical",
+          severityColors.critical,
+          "high",
+          severityColors.high,
+          "moderate",
+          severityColors.moderate,
+          "low",
+          severityColors.low,
+          severityColors.low,
+        ],
       ],
       "circle-radius": 7,
       "circle-opacity": 0.95,
@@ -528,6 +545,7 @@ export function MapView({
   const markersRef = useRef<Record<number, mapboxgl.Marker>>({});
   const markersOnScreenRef = useRef<Record<number, mapboxgl.Marker>>({});
   const viewModeRef = useRef<ViewMode>("heatmap");
+  const hasAutoFitRef = useRef(false);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -706,7 +724,6 @@ export function MapView({
       map.remove();
       mapRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Sync both sources
@@ -756,6 +773,27 @@ export function MapView({
       }
     }
   }, [selectedId, incidents]);
+
+  // Auto-fit once when first incidents arrive, so non-Stockholm data is visible.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || incidents.length === 0 || selectedId || hasAutoFitRef.current) return;
+
+    const bounds = new mapboxgl.LngLatBounds(
+      [incidents[0].lng, incidents[0].lat],
+      [incidents[0].lng, incidents[0].lat],
+    );
+    for (const incident of incidents) {
+      bounds.extend([incident.lng, incident.lat]);
+    }
+
+    map.fitBounds(bounds, {
+      padding: 64,
+      maxZoom: 13,
+      duration: 700,
+    });
+    hasAutoFitRef.current = true;
+  }, [incidents, selectedId]);
 
   // View mode switch
   useEffect(() => {
