@@ -186,26 +186,19 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
         return []
 
 
-def _persist_parsed_speciality(
+def _ensure_user_from_parsed(
     from_number: str,
     parsed: dict,
     latitude: float | None,
     longitude: float | None,
-    skill_embeddings: list[list[float]],
-) -> None:
-    """Find or create user by phone; update name/location/lat/lng; insert ethan_user_speciality rows when we have embeddings."""
+) -> str:
+    """Create user in DB from parsed info only if no user exists for this phone; return user_id."""
     name = parsed["name"]
     location = parsed["location"]
-    skills = parsed["skills"]
     with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
+        user_id = get_user_id_from_phone(from_number)
         with conn.cursor() as cur:
-            cur.execute(
-                """SELECT id FROM "user" WHERE phone = %s LIMIT 1""",
-                (from_number.strip(),),
-            )
-            row = cur.fetchone()
-            if row:
-                user_id = row[0]
+            if user_id:
                 cur.execute(
                     """
                     UPDATE "user"
@@ -214,32 +207,104 @@ def _persist_parsed_speciality(
                     """,
                     (name, location, latitude, longitude, datetime.now(), user_id),
                 )
-            else:
+                conn.commit()
+                return str(user_id)
+            cur.execute(
+                """
+                INSERT INTO "user" (id, name, phone, role, status, location, latitude, longitude, last_location_update)
+                VALUES (gen_random_uuid(), %s, %s, 'Responder', 'Active', %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (name, from_number.strip(), location, latitude, longitude, datetime.now()),
+            )
+            user_id = cur.fetchone()[0]
+            conn.commit()
+            return str(user_id)
+
+
+def _persist_parsed_speciality(
+    from_number: str,
+    parsed: dict,
+    latitude: float | None,
+    longitude: float | None,
+    skill_embeddings: list[list[float]],
+) -> None:
+    """Ensure user exists for phone (create from parsed info if not), then insert ethan_user_speciality rows when we have embeddings."""
+    skills = parsed["skills"]
+    user_id = _ensure_user_from_parsed(from_number, parsed, latitude, longitude)
+    if user_id is None:
+        raise ValueError("User ID is None")
+    if len(skill_embeddings) != len(skills):
+        raise ValueError("Number of skill embeddings does not match number of skills")
+    with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
+        with conn.cursor() as cur:
+            for skill, embedding in zip(skills, skill_embeddings):
                 cur.execute(
                     """
-                    INSERT INTO "user" (id, name, phone, role, status, location, latitude, longitude, last_location_update)
-                    VALUES (gen_random_uuid(), %s, %s, 'Responder', 'Active', %s, %s, %s, %s)
-                    RETURNING id
+                    INSERT INTO ethan_user_speciality (user_id, speciality, embedding)
+                    VALUES (%s, %s, %s::vector)
                     """,
-                    (name, from_number.strip(), location, latitude, longitude, datetime.now()),
+                    (user_id, skill, embedding),
                 )
-                user_id = cur.fetchone()[0]
-            if len(skill_embeddings) == len(skills):
-                for skill, embedding in zip(skills, skill_embeddings):
-                    vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
-                    cur.execute(
-                        """
-                        INSERT INTO ethan_user_speciality (user_id, speciality, embedding)
-                        VALUES (%s, %s, %s::vector)
-                        """,
-                        (user_id, skill, vec_str),
-                    )
             conn.commit()
 
+def get_user_id_from_phone(phone: str) -> str:
+    with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id FROM "user" WHERE phone = %s LIMIT 1""",
+                (phone.strip(),),
+            )
+            return cur.fetchone()[0]
+
+def _get_case_assigned_to_user(user_id: str) -> dict | None:
+    """Look up user by id, then return the case assigned to that user (most recent notified assignment for an open case), or None."""
+    with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id FROM "user" WHERE id = %s LIMIT 1""",
+                (user_id.strip(),),
+            )
+            if cur.fetchone() is None:
+                return None
+            cur.execute(
+                """
+                SELECT ra.case_id, ra.id AS assignment_id, ra.status, c.title, c.summary
+                FROM responder_assignment ra
+                JOIN "case" c ON c.id = ra.case_id
+                WHERE ra.responder_id = %s AND c.status = 'Open'
+                ORDER BY ra.notified_at DESC
+                LIMIT 1
+                """,
+                (user_id.strip(),),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return dict(row)
+
+def _accept_case_to_user(user_id: str, case_id: str) -> None:
+    with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE responder_assignment SET status = 'accepted' WHERE responder_id = %s AND case_id = %s""",
+                (user_id.strip(), case_id.strip()),
+            )
+            conn.commit()
+        
+    send_sms(user_id, "Case accepted")
 
 def handle_sms_speciality_number(
     from_number: str, to_number: str, body: str, message_sid: str | None
 ) -> Response:
+    if body == "YES":
+        case = _get_case_assigned_to_user(from_number)
+        if case is None:
+            return SUCCESS_RESPONSE
+
+        _accept_case_to_user(from_number, case["case_id"])
+        return SUCCESS_RESPONSE
+
     historic = load_historic_speciality_messages(from_number)
     is_first_message = len(historic) == 0
 
