@@ -6,7 +6,7 @@ import math
 from typing import List, Dict, Tuple, Optional
 import psycopg
 from psycopg.rows import dict_row
-from twilio_service import send_sms
+from twilio_app import send_sms
 import logging
 
 logger = logging.getLogger(__name__)
@@ -145,11 +145,20 @@ def notify_responders(
     Returns:
         Tuple of (successful_notifications, failed_notifications)
     """
+    logger.info(f"DEBUG notify_responders: Called with {len(responders)} responders, case_id={case_id}")
+    logger.info(f"DEBUG notify_responders: Responders list: {responders}")
+
     successful = 0
     failed = 0
 
-    for responder in responders:
+    if not responders:
+        logger.warning("DEBUG notify_responders: Empty responders list, returning early")
+        return 0, 0
+
+    for idx, responder in enumerate(responders):
         try:
+            logger.info(f"DEBUG: Processing responder {idx+1}/{len(responders)}: {responder['name']} at {responder['phone']}")
+
             # Construct the SMS message
             message = f"🚨 EMERGENCY ALERT\n\n"
             message += f"Your help is needed {responder['distance_km']}km away!\n\n"
@@ -173,12 +182,16 @@ def notify_responders(
                 message += f"Severity: {emergency_info['severity']}/5\n"
 
             if case_id:
-                message += f"\nCase ID: {case_id[:8]}\n"
+                message += f"\nCase ID: {str(case_id)[:8]}\n"
 
             message += "\nReply YES if you can respond."
 
+            logger.info(f"DEBUG: Sending SMS to {responder['phone']}, message length: {len(message)}")
+
             # Send the SMS
             result = send_sms(responder["phone"], message)
+
+            logger.info(f"DEBUG: SMS result - status: {result.status}, sid: {result.message_sid}, error: {result.error_message}")
 
             if result.status:
                 successful += 1
@@ -223,7 +236,10 @@ def notify_responders(
         except Exception as e:
             failed += 1
             logger.error(f"Error notifying responder {responder['name']}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
 
+    logger.info(f"DEBUG notify_responders: Completed - successful={successful}, failed={failed}")
     return successful, failed
 
 
@@ -261,14 +277,19 @@ def alert_nearby_help(
         )
         return result
 
+    print(f"DEBUG alert_nearby_help: Starting search at {emergency_info['latitude']}, {emergency_info['longitude']}")
+
     # Determine needed specialties based on emergency category
     category = emergency_info.get("category", "").lower()
     emergency_desc = emergency_info.get("emergency_description", "").lower()
     needed_specialties = None
 
+    print(f"DEBUG: Category={category}, Description={emergency_desc[:50] if emergency_desc else 'None'}")
+
     # Check for allergy/epipen emergency first
-    if any(word in emergency_desc for word in ["allerg", "anaphyl", "epipen", "bee sting", "peanut", "shellfish"]):
+    if any(word in emergency_desc for word in ["allerg", "anaphyl", "epipen", "bee sting", "peanut", "shellfish", "nuts", "reaction"]):
         needed_specialties = ["EPIPEN_HOLDER", "Doctor", "EMT"]
+        print(f"DEBUG: Detected allergy emergency! Looking for: {needed_specialties}")
     elif "medical" in category or "injury" in category or "health" in category:
         needed_specialties = ["Doctor", "Nurse", "EMT"]
     elif "fire" in category:
@@ -280,16 +301,25 @@ def alert_nearby_help(
     elif "rescue" in category or "trapped" in category:
         needed_specialties = ["Search & Rescue", "Firefighter"]
 
-    # Find nearby responders (only those with real phone numbers)
+    # Find nearby responders - DEMO MODE: very loose filters
+    print(f"DEBUG: Searching for responders within {radius_km}km, specialties={needed_specialties}")
+
+    # For demo: use VERY large radius to ensure we find everyone
+    demo_radius = 1000.0  # 1000km radius - covers all of Scandinavia!
+
     responders = find_nearby_responders(
         db_url,
         emergency_info["latitude"],
         emergency_info["longitude"],
-        radius_km,
+        demo_radius,  # Use HUGE radius for demo
         needed_specialties,
         max_responders,
-        only_real_numbers=True,  # Only notify responders with real SMS-capable numbers
+        only_real_numbers=False,  # DEMO: Allow all numbers including test numbers
     )
+
+    print(f"DEBUG: Found {len(responders)} responders")
+    for r in responders:
+        print(f"  - {r.get('name', 'Unknown')}: {r.get('distance_km', 'Unknown')}km, phone={r.get('phone', 'Unknown')}")
 
     result["responders_found"] = len(responders)
     result["responders"] = [
@@ -303,10 +333,14 @@ def alert_nearby_help(
 
     # Send notifications if responders found
     if responders:
+        logger.info(f"DEBUG alert_nearby_help: About to call notify_responders with {len(responders)} responders")
         successful, failed = notify_responders(responders, emergency_info, case_id, db_url)
+        logger.info(f"DEBUG alert_nearby_help: notify_responders returned - successful={successful}, failed={failed}")
         result["notifications_sent"] = successful
         result["notifications_failed"] = failed
 
         logger.info(f"Alerted {successful} responders, {failed} failed")
+    else:
+        logger.warning("DEBUG alert_nearby_help: No responders found, skipping notifications")
 
     return result

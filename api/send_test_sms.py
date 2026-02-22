@@ -5,7 +5,7 @@ This bypasses the emergency system and just sends a direct message.
 """
 
 import sys
-from twilio_service import send_sms, get_twilio_client
+from twilio_app import send_sms, get_twilio_client
 from env import TWILIO_FROM_NUMBER
 import psycopg
 from psycopg.rows import dict_row
