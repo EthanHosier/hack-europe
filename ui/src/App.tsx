@@ -10,7 +10,7 @@ import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
 import type { LiveEventResponse } from "@/api/generated/schemas";
 import { useCompleteCase } from "@/lib/useCompleteCase";
-import { generateTestIncidents } from "./test/generatePoints";
+// import { generateTestIncidents } from "./test/generatePoints";
 
 const ALL_INCIDENT_TYPES: Incident["type"][] = [
   "fire",
