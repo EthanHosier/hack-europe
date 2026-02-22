@@ -624,6 +624,46 @@
         }
       }
     },
+    "/cases/{case_id}/complete": {
+      "post": {
+        "summary": "Complete Case",
+        "description": "Mark a case as completed by setting completed_at and status to Resolved.",
+        "operationId": "complete_case_cases__case_id__complete_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/debug/all": {
       "get": {
         "summary": "Get All Data",
@@ -952,6 +992,18 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
           "maps_url": {
             "anyOf": [
               {
@@ -1212,6 +1264,18 @@
               }
             ],
             "title": "Case Title"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
           }
         },
         "type": "object",

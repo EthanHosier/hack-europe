@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -25,7 +26,7 @@ import {
 
 export interface Incident {
   id: string;
-  type: "fire" | "medical" | "rescue" | "di1saster" | "emergency" | "other";
+  type: "fire" | "medical" | "rescue" | "disaster" | "emergency" | "other";
   description: string;
   region: string;
   severity: "critical" | "high" | "moderate" | "low";
@@ -33,17 +34,18 @@ export interface Incident {
   status: "unassigned" | "matching" | "assigned";
   lat: number;
   lng: number;
+  completedAt: Date | null; // from doc13
 }
 
 interface IncidentQueueProps {
   incidents: Incident[];
   selectedId: string | null;
   onSelectIncident: (id: string) => void;
-  // Filter props (from v2)
   incidentTypes: Incident["type"][];
   selectedTypes: Incident["type"][];
   incidentTypeCounts: Record<Incident["type"], number>;
   onToggleType: (type: Incident["type"]) => void;
+  onSelectAllTypes: () => void; // restored from doc13
   onClearAllTypes: () => void;
 }
 
@@ -86,7 +88,7 @@ const typeIcons: Record<Incident["type"], React.ElementType> = {
   fire: Flame,
   medical: Heart,
   rescue: AlertTriangle,
-  disaster: Home,
+  disaster: Home, // fixed "di1saster" typo from doc14
   emergency: Zap,
   other: AlertTriangle,
 };
@@ -110,6 +112,98 @@ function getTimeSince(ts: Date): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// ─── IncidentCard (from doc13) ────────────────────────────────────────────────
+
+function IncidentCard({
+  incident,
+  isSelected,
+  isFlashing,
+  onClick,
+  itemRef,
+  completed = false,
+}: {
+  incident: Incident;
+  isSelected: boolean;
+  isFlashing?: boolean;
+  onClick: () => void;
+  itemRef?: (el: HTMLDivElement | null) => void;
+  completed?: boolean;
+}) {
+  const Icon = typeIcons[incident.type];
+
+  let bgClass: string;
+  if (isSelected) bgClass = "bg-[#1a2332] border-l-2 border-l-[#5b8dbf]";
+  else if (isFlashing) bgClass = "bg-[#1d3148]";
+  else bgClass = "hover:bg-[#141825]";
+
+  return (
+    <div
+      ref={itemRef}
+      onClick={onClick}
+      className={`px-4 py-3 border-b border-[#1e2530] cursor-pointer transition-colors duration-500 ${completed ? "opacity-60" : ""} ${bgClass}`}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="w-8 h-8 rounded flex items-center justify-center mt-0.5 shrink-0"
+          style={{
+            backgroundColor: completed
+              ? "#22c55e15"
+              : `${severityColors[incident.severity]}18`,
+          }}
+        >
+          {completed ? (
+            <CheckCircle2 className="w-4 h-4 text-[#22c55e]" />
+          ) : (
+            <Icon
+              className="w-4 h-4"
+              style={{ color: severityColors[incident.severity] }}
+            />
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] text-[#e8eaed] leading-tight line-clamp-2 mb-1">
+            {incident.description}
+          </p>
+          <p className="text-[11px] text-[#6b7280] truncate mb-2">
+            {incident.region}
+          </p>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {completed ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-medium bg-[#22c55e20] text-[#22c55e]">
+                RESOLVED
+              </span>
+            ) : (
+              <>
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-[500]"
+                  style={{
+                    backgroundColor: `${severityColors[incident.severity]}22`,
+                    color: severityColors[incident.severity],
+                  }}
+                >
+                  {severityLabels[incident.severity]}
+                </span>
+                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">
+                  {statusLabels[incident.status]}
+                </span>
+              </>
+            )}
+
+            <span className="ml-auto flex items-center gap-1 text-[10px] text-[#6b7280]">
+              <Clock className="w-3 h-3" />
+              {completed && incident.completedAt
+                ? getTimeSince(incident.completedAt)
+                : getTimeSince(incident.timestamp)}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const IncidentQueue = forwardRef<
@@ -124,6 +218,7 @@ export const IncidentQueue = forwardRef<
     selectedTypes,
     incidentTypeCounts,
     onToggleType,
+    onSelectAllTypes,
     onClearAllTypes,
   },
   ref,
@@ -144,9 +239,8 @@ export const IncidentQueue = forwardRef<
     },
   }));
 
-  // ── Derived data ─────────────────────────────────────────────────────────
+  // ── Derived data ───────────────────────────────────────────────────────
 
-  // Apply type filter first, then split into sections
   const filtered = useMemo(
     () =>
       selectedTypes.length === 0
@@ -155,32 +249,49 @@ export const IncidentQueue = forwardRef<
     [incidents, selectedTypes],
   );
 
+  // Active = not yet completed
   const unassigned = useMemo(
     () =>
-      sortBySeverityThenTime(filtered.filter((i) => i.status === "unassigned")),
+      sortBySeverityThenTime(
+        filtered.filter(
+          (i) => i.completedAt === null && i.status === "unassigned",
+        ),
+      ),
     [filtered],
   );
 
   const p2pIncidents = useMemo(
     () =>
-      sortBySeverityThenTime(filtered.filter((i) => i.status === "matching")),
+      sortBySeverityThenTime(
+        filtered.filter(
+          (i) => i.completedAt === null && i.status === "matching",
+        ),
+      ),
     [filtered],
   );
 
+  // Historical = completedAt set OR status === "assigned"
   const historical = useMemo(
     () =>
-      [...filtered.filter((i) => i.status === "assigned")].sort(
-        (a, b) => b.timestamp.getTime() - a.timestamp.getTime(),
-      ),
+      [
+        ...filtered.filter(
+          (i) => i.completedAt !== null || i.status === "assigned",
+        ),
+      ].sort((a, b) => {
+        const aTime = (a.completedAt ?? a.timestamp).getTime();
+        const bTime = (b.completedAt ?? b.timestamp).getTime();
+        return bTime - aTime;
+      }),
     [filtered],
   );
 
-  // Recent = all active sorted purely by arrival time (navigation aid)
   const recentByTime = useMemo(
     () =>
-      [...filtered.filter((i) => i.status !== "assigned")].sort(
-        (a, b) => b.timestamp.getTime() - a.timestamp.getTime(),
-      ),
+      [
+        ...filtered.filter(
+          (i) => i.completedAt === null && i.status !== "assigned",
+        ),
+      ].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()),
     [filtered],
   );
 
@@ -188,10 +299,9 @@ export const IncidentQueue = forwardRef<
     ? recentByTime
     : recentByTime.slice(0, RECENT_DEFAULT_LIMIT);
   const hiddenRecentCount = recentByTime.length - RECENT_DEFAULT_LIMIT;
-
   const activeCount = unassigned.length + p2pIncidents.length;
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────────
 
   const handleRecentClick = useCallback(
     (id: string) => {
@@ -225,73 +335,21 @@ export const IncidentQueue = forwardRef<
     onClearAllTypes();
   };
 
-  // ── Render helpers ────────────────────────────────────────────────────────
+  // ── Render helpers ─────────────────────────────────────────────────────
 
-  const renderCard = (incident: Incident) => {
-    const Icon = typeIcons[incident.type];
-    const isSelected = incident.id === selectedId;
-    const isFlashing = incident.id === flashId;
-
-    let bgClass: string;
-    if (isSelected) bgClass = "bg-[#1a2332] border-l-2 border-l-[#5b8dbf]";
-    else if (isFlashing) bgClass = "bg-[#1d3148]";
-    else bgClass = "hover:bg-[#141825]";
-
-    return (
-      <div
-        key={incident.id}
-        ref={(el) => {
-          itemRefs.current[incident.id] = el;
-        }}
-        onClick={() => onSelectIncident(incident.id)}
-        className={`px-4 py-3 border-b border-[#1e2530] cursor-pointer transition-colors duration-500 ${bgClass}`}
-      >
-        <div className="flex items-start gap-3">
-          <div
-            className="w-8 h-8 rounded flex items-center justify-center mt-0.5 shrink-0"
-            style={{
-              backgroundColor: `${severityColors[incident.severity]}18`,
-            }}
-          >
-            <Icon
-              className="w-4 h-4"
-              style={{ color: severityColors[incident.severity] }}
-            />
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <p className="text-[13px] text-[#e8eaed] leading-tight line-clamp-2 mb-1">
-              {incident.description}
-            </p>
-            <p className="text-[11px] text-[#6b7280] truncate mb-2">
-              {incident.region}
-            </p>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-[500]"
-                style={{
-                  backgroundColor: `${severityColors[incident.severity]}22`,
-                  color: severityColors[incident.severity],
-                }}
-              >
-                {severityLabels[incident.severity]}
-              </span>
-
-              <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">
-                {statusLabels[incident.status]}
-              </span>
-
-              <span className="ml-auto flex items-center gap-1 text-[10px] text-[#6b7280]">
-                <Clock className="w-3 h-3" />
-                {getTimeSince(incident.timestamp)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const renderCard = (incident: Incident, completed = false) => (
+    <IncidentCard
+      key={incident.id}
+      incident={incident}
+      isSelected={incident.id === selectedId}
+      isFlashing={incident.id === flashId}
+      onClick={() => onSelectIncident(incident.id)}
+      itemRef={(el) => {
+        itemRefs.current[incident.id] = el;
+      }}
+      completed={completed}
+    />
+  );
 
   const renderRecentRow = (incident: Incident) => {
     const isSelected = incident.id === selectedId;
@@ -317,10 +375,10 @@ export const IncidentQueue = forwardRef<
     );
   };
 
-  // ── Layout ────────────────────────────────────────────────────────────────
+  // ── Layout ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="w-[340px] bg-[#0f1419] border-r border-[#1e2530] flex flex-col overflow-hidden">
+    <div className="w-[340px] h-full bg-[#0f1419] border-r border-[#1e2530] flex flex-col overflow-hidden">
       {/* ── Header ── */}
       <div className="h-12 border-b border-[#1e2530] flex items-center px-4 gap-2 shrink-0">
         <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500]">
@@ -346,7 +404,7 @@ export const IncidentQueue = forwardRef<
         </button>
       </div>
 
-      {/* ── Type filter (always visible) ── */}
+      {/* ── Type filter ── */}
       <div className="border-b border-[#1e2530] px-4 py-3 space-y-2 shrink-0">
         <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">
           Filter
@@ -356,7 +414,7 @@ export const IncidentQueue = forwardRef<
             <div className="flex items-center gap-2">
               <div className="flex flex-1 flex-wrap gap-1.5">
                 {selectedTypes.length === 0 ? (
-                  <span className="text-[#6b7280]">All incident types</span>
+                  <span className="text-[#6b7280]">All types</span>
                 ) : (
                   selectedTypes.map((type) => (
                     <span
@@ -390,6 +448,23 @@ export const IncidentQueue = forwardRef<
             </div>
           </summary>
           <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-full rounded border border-[#2a3340] bg-[#101723] p-2 shadow-lg">
+            {/* All / None buttons restored from doc13 */}
+            <div className="mb-2 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={onSelectAllTypes}
+                className="text-[10px] uppercase tracking-wider text-[#5b8dbf] hover:text-[#7ea8d1]"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={onClearAllTypes}
+                className="text-[10px] uppercase tracking-wider text-[#6b7280] hover:text-[#9ca3af]"
+              >
+                None
+              </button>
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {incidentTypes.map((type) => {
                 const isSelected = selectedTypes.includes(type);
@@ -413,7 +488,7 @@ export const IncidentQueue = forwardRef<
         </details>
       </div>
 
-      {/* ── Recent section (fixed, active view only) ── */}
+      {/* ── Recent section (active view only) ── */}
       {viewMode === "active" && recentByTime.length > 0 && (
         <div className="border-b border-[#1e2530] shrink-0">
           <div className="px-4 pt-2.5 pb-1 flex items-center gap-2">
@@ -460,13 +535,11 @@ export const IncidentQueue = forwardRef<
                 No active incidents
               </div>
             ) : (
-              unassigned.map(renderCard)
+              unassigned.map((i) => renderCard(i))
             )}
 
-            {/* P2P section */}
             <button
-              className="w-full px-4 py-2.5 flex items-center gap-2 border-t border-[#1e2530]
-                           hover:bg-[#141825] transition-colors"
+              className="w-full px-4 py-2.5 flex items-center gap-2 border-t border-[#1e2530] hover:bg-[#141825] transition-colors"
               onClick={() => setShowP2P((s) => !s)}
             >
               <Users className="w-3 h-3 text-[#6b7280]" />
@@ -491,12 +564,12 @@ export const IncidentQueue = forwardRef<
                   No active P2P coordination
                 </div>
               ) : (
-                p2pIncidents.map(renderCard)
+                p2pIncidents.map((i) => renderCard(i))
               ))}
           </>
         )}
 
-        {/* HISTORICAL VIEW */}
+        {/* HISTORICAL VIEW — uses completed=true for green RESOLVED styling */}
         {viewMode === "historical" && (
           <>
             <div className="px-4 pt-3 pb-1.5 flex items-center gap-2 sticky top-0 bg-[#0f1419] z-10 border-b border-[#1e2530]">
@@ -513,7 +586,7 @@ export const IncidentQueue = forwardRef<
                 No resolved cases yet
               </div>
             ) : (
-              historical.map(renderCard)
+              historical.map((i) => renderCard(i, true))
             )}
           </>
         )}
