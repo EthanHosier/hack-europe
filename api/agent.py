@@ -30,6 +30,7 @@ class EmergencyInfo(BaseModel):
     emergency_description: Optional[str] = None
     category: Optional[str] = None  # fuel, medical, shelter, etc.
     severity: Optional[int] = 3  # 1-5 scale
+    stress_level: Optional[str] = None  # Low, Medium, High
 
 
 class EmergencyAgent:
@@ -241,8 +242,8 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
             # Create the case
             cur.execute(
                 """
-                INSERT INTO "case" (id, title, summary, severity, status, category, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO "case" (id, title, summary, severity, status, category, stress_level, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -252,6 +253,7 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
                     severity,
                     "Open",
                     category,
+                    info.stress_level,
                     now,
                     now,
                 ),
