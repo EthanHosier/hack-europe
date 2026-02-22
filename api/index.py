@@ -213,6 +213,7 @@ class LiveEventResponse(BaseModel):
     case_status: str
     case_category: Optional[str] = None
     case_title: Optional[str] = None
+    completed_at: Optional[datetime] = None
 
 
 # Emergency categorization patterns
@@ -1158,7 +1159,8 @@ async def get_live_events(
                         c.severity AS case_severity,
                         c.status AS case_status,
                         c.category AS case_category,
-                        c.title AS case_title
+                        c.title AS case_title,
+                        c.completed_at
                     FROM event e
                     JOIN "case" c ON c.id = e.case_id
                     WHERE e.latitude IS NOT NULL AND e.longitude IS NOT NULL
