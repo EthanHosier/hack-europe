@@ -112,6 +112,7 @@ class SearchUsersBySpecialityRequest(BaseModel):
 
 class UserWithNotifiedResponse(UserResponse):
     notified_for_case: bool = False
+    skills: List[str] = []
 
 
 class DispatchCaseToUserRequest(BaseModel):
@@ -917,6 +918,8 @@ def search_users_by_speciality(body: SearchUsersBySpecialityRequest) -> List[Use
     for r in rows:
         r = dict(r)
         r["id"] = str(r["id"])
+        # skills from DB can be None or list; ensure list of strings
+        r["skills"] = list(r["skills"]) if r.get("skills") else []
         out.append(UserWithNotifiedResponse(**r))
     return out
 
