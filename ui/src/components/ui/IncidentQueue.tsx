@@ -347,7 +347,8 @@ export const IncidentQueue = forwardRef<
     ? recentByTime
     : recentByTime.slice(0, RECENT_DEFAULT_LIMIT);
   const hiddenRecentCount = recentByTime.length - RECENT_DEFAULT_LIMIT;
-  const activeCount = unassigned.length + p2pIncidents.length;
+  // const activeCount = unassigned.length + p2pIncidents.length;
+  const activeCount = incidents.filter((i) => i.completedAt === null).length;
 
   // ── Handlers ──────────────────────────────────────────────────────────
 
@@ -462,7 +463,9 @@ export const IncidentQueue = forwardRef<
             role="button"
             tabIndex={0}
             onClick={() => setFilterOpen((o) => !o)}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setFilterOpen((o) => !o); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") setFilterOpen((o) => !o);
+            }}
             className="w-full cursor-pointer rounded border border-[#2a3340] bg-[#141825] px-2 py-2 text-[11px] text-[#c5cad3]"
           >
             <div className="flex items-center gap-2">

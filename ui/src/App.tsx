@@ -285,7 +285,9 @@ export default function App() {
   return (
     <div className="size-full flex flex-col bg-[#0a0e1a] text-[#e8eaed]">
       <TopBar
-        activeIncidents={filteredIncidents.length}
+        activeIncidents={
+          filteredIncidents.filter((i) => i.completedAt === null).length
+        }
         activeResponders={
           mockResponders.filter((r) => r.availability === "available").length
         }
