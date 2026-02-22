@@ -9,7 +9,6 @@ import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
 import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
 import type { LiveEventResponse } from "@/api/generated/schemas";
-// import { generateTestIncidents } from "./test/generatePoints";
 
 const incidentTypeByCategory: Record<string, Incident["type"]> = {
   medical: "medical",
@@ -113,8 +112,6 @@ const mockResponders = [
   },
 ];
 
-// const mockIncidents = generateTestIncidents(800);
-
 export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
     null,
@@ -189,14 +186,12 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         <IncidentQueue
           incidents={incidents}
-          // incidents={mockIncidents}
           selectedId={selectedIncidentId}
           onSelectIncident={setSelectedIncidentId}
         />
 
         <MapView
           incidents={incidents}
-          // incidents={mockIncidents}
           selectedId={selectedIncidentId}
           onSelectIncident={handleMapSelect}
         />
