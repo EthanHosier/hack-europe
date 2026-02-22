@@ -142,7 +142,10 @@ export default function App() {
     [liveEvents],
   );
   const filteredIncidents = useMemo(
-    () => incidents.filter((incident) => selectedTypes.includes(incident.type)),
+    () =>
+      selectedTypes.length === 0
+        ? incidents
+        : incidents.filter((incident) => selectedTypes.includes(incident.type)),
     [incidents, selectedTypes],
   );
   const incidentTypeCounts = useMemo<Record<Incident["type"], number>>(

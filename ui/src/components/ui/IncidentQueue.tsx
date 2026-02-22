@@ -25,7 +25,7 @@ import {
 
 export interface Incident {
   id: string;
-  type: "fire" | "medical" | "rescue" | "disaster" | "emergency" | "other";
+  type: "fire" | "medical" | "rescue" | "di1saster" | "emergency" | "other";
   description: string;
   region: string;
   severity: "critical" | "high" | "moderate" | "low";
