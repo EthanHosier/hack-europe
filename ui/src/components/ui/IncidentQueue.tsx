@@ -358,7 +358,7 @@ export const IncidentQueue = forwardRef<
             <div className="flex items-center gap-2">
               <div className="flex flex-1 flex-wrap gap-1.5">
                 {selectedTypes.length === 0 ? (
-                  <span className="text-[#6b7280]">All types</span>
+                  <span className="text-[#6b7280]">No filters selected</span>
                 ) : (
                   selectedTypes.map((type) => (
                     <span

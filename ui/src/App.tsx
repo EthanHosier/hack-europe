@@ -125,8 +125,7 @@ export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
     null,
   );
-  const [selectedTypes, setSelectedTypes] =
-    useState<Incident["type"][]>(ALL_INCIDENT_TYPES);
+  const [selectedTypes, setSelectedTypes] = useState<Incident["type"][]>([]);
   const { data: liveEventsResponse } = useGetLiveEventsEventsLiveGet(
     { limit: 300 },
     {
