@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
 import { IncidentQueue } from "@/components/ui/IncidentQueue";
 import type {
@@ -11,6 +11,39 @@ import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
 import type { LiveEventResponse } from "@/api/generated/schemas";
 import { useCompleteCase } from "@/lib/useCompleteCase";
 // import { generateTestIncidents } from "./test/generatePoints";
+
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
+
+type ResponderCandidate = {
+  id: string;
+  name: string;
+  role: string;
+  distance: number;
+  availability: "available" | "on-call" | "busy";
+  verificationLevel: "verified" | "pending" | "unverified";
+  skills: string[];
+};
+
+function mapSearchRespondersToCandidates(
+  users: Array<{
+    id: string;
+    name: string;
+    role?: string;
+    status?: string;
+    skills?: string[];
+    distance_km?: number | null;
+  }>
+): ResponderCandidate[] {
+  return users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    role: u.role ?? "Responder",
+    distance: u.distance_km ?? 0,
+    availability: u.status === "Active" ? "available" : ("on-call" as const),
+    verificationLevel: "verified" as const,
+    skills: Array.isArray(u.skills) ? u.skills : [],
+  }));
+}
 
 const ALL_INCIDENT_TYPES: Incident["type"][] = [
   "fire",
@@ -145,15 +178,19 @@ const mockResponders = [
 
 export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
-    null,
+    null
   );
   const [selectedTypes, setSelectedTypes] = useState<Incident["type"][]>([]);
   const [queueViewMode, setQueueViewMode] = useState<"active" | "historical">(
-    "active",
+    "active"
   );
   const [dispatchedByIncident, setDispatchedByIncident] = useState<
     Record<string, string[]>
   >({});
+  const [respondersForPanel, setRespondersForPanel] = useState<
+    ResponderCandidate[]
+  >([]);
+  const [respondersLoading, setRespondersLoading] = useState(false);
 
   const { completeCase, isResolving } = useCompleteCase();
 
@@ -164,12 +201,12 @@ export default function App() {
         refetchInterval: 5000,
         refetchIntervalInBackground: true,
       },
-    },
+    }
   );
   const liveEvents = liveEventsResponse?.data ?? [];
   const incidents = useMemo<Incident[]>(
     () => liveEvents.map(toIncident),
-    [liveEvents],
+    [liveEvents]
   );
   // const incidents = mockIncidents;
   const filteredIncidents = useMemo(
@@ -177,18 +214,18 @@ export default function App() {
       selectedTypes.length === 0
         ? incidents
         : incidents.filter((incident) => selectedTypes.includes(incident.type)),
-    [incidents, selectedTypes],
+    [incidents, selectedTypes]
   );
   const mapIncidents = useMemo(
     () =>
       queueViewMode === "active"
         ? filteredIncidents.filter(
-            (i) => i.completedAt === null && i.status !== "assigned",
+            (i) => i.completedAt === null && i.status !== "assigned"
           )
         : filteredIncidents.filter(
-            (i) => i.completedAt !== null || i.status === "assigned",
+            (i) => i.completedAt !== null || i.status === "assigned"
           ),
-    [filteredIncidents, queueViewMode],
+    [filteredIncidents, queueViewMode]
   );
 
   const incidentTypeCounts = useMemo<Record<Incident["type"], number>>(
@@ -205,9 +242,9 @@ export default function App() {
           disaster: 0,
           emergency: 0,
           other: 0,
-        },
+        }
       ),
-    [incidents],
+    [incidents]
   );
   const queueRef = useRef<IncidentQueueHandle>(null);
 
@@ -223,13 +260,10 @@ export default function App() {
   };
 
   const handleDispatch = (responderId: string, incidentId: string) => {
-    // Match the 1500ms animation delay in IntelligencePanel
-    setTimeout(() => {
-      setDispatchedByIncident((prev) => ({
-        ...prev,
-        [incidentId]: [...(prev[incidentId] ?? []), responderId],
-      }));
-    }, 1500);
+    // TODO: trigger API call to dispatch responder to incident - update state in BE
+    console.log(
+      `Dispatching responder ${responderId} to incident ${incidentId}`
+    );
   };
 
   const dispatchedResponders = useMemo(() => {
@@ -244,7 +278,7 @@ export default function App() {
     setSelectedTypes((prev) =>
       prev.includes(type)
         ? prev.filter((item) => item !== type)
-        : [...prev, type],
+        : [...prev, type]
     );
   };
 
@@ -282,6 +316,44 @@ export default function App() {
     filteredIncidents.find((incident) => incident.id === selectedIncidentId) ||
     null;
 
+  const fetchRespondersForIncident = useCallback(
+    async (incident: Incident | null) => {
+      if (!incident || incident.lat == null || incident.lng == null) {
+        setRespondersForPanel([]);
+        return;
+      }
+      setRespondersLoading(true);
+      try {
+        const query =
+          incident.requiredCapability ||
+          incident.description?.slice(0, 80) ||
+          "emergency response";
+        const params = new URLSearchParams({
+          lat: String(incident.lat),
+          lng: String(incident.lng),
+          query,
+          max_match_count: "10",
+          ...(incident.id ? { case_id: incident.id } : {}),
+        });
+        const base = API_BASE.replace(/\/$/, "");
+        const url = `${base || ""}/api/users/search-by-speciality?${params}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(String(res.status));
+        const data = (await res.json()) as ResponderCandidate[];
+        setRespondersForPanel(mapSearchRespondersToCandidates(data));
+      } catch {
+        setRespondersForPanel([]);
+      } finally {
+        setRespondersLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    fetchRespondersForIncident(selectedIncident);
+  }, [selectedIncident, fetchRespondersForIncident]);
+
   return (
     <div className="size-full flex flex-col bg-[#0a0e1a] text-[#e8eaed]">
       <TopBar
@@ -315,7 +387,8 @@ export default function App() {
 
         <IntelligencePanel
           selectedIncident={selectedIncident}
-          responders={mockResponders}
+          responders={respondersForPanel}
+          respondersLoading={respondersLoading}
           onDispatch={handleDispatch}
           onMarkResolved={handleMarkResolved}
           isResolving={isResolving}
