@@ -39,6 +39,12 @@ class Scenario:
     summary: str
     category: str
     severity: int
+    p2p: bool = False
+    confidence: int = 80
+    required_capability: str | None = None
+    parsed_need_type: str | None = None
+    recommended_action: str | None = None
+    stress_level: str | None = None
 
 
 SCENARIOS = [
@@ -47,36 +53,72 @@ SCENARIOS = [
         summary="Adult showing severe allergic reaction symptoms; needs EpiPen support immediately.",
         category="medical",
         severity=5,
+        p2p=False,
+        confidence=92,
+        required_capability="Epinephrine auto-injector and airway management",
+        parsed_need_type="Immediate anaphylaxis intervention",
+        recommended_action="Dispatch nearest ALS unit with epinephrine supply",
+        stress_level="High",
     ),
     Scenario(
         title="Suspected broken leg after fall",
         summary="Person unable to move after a fall; possible leg fracture and pain escalation.",
         category="rescue",
         severity=4,
+        p2p=False,
+        confidence=85,
+        required_capability="Splinting equipment and pain management",
+        parsed_need_type="Fracture stabilisation and extraction",
+        recommended_action="Send rescue team with stretcher and splints",
+        stress_level="High",
     ),
     Scenario(
         title="Family needs drinking water",
         summary="Group reports depleted water supply and dehydration risk in current conditions.",
         category="food_water",
         severity=3,
+        p2p=True,
+        confidence=88,
+        required_capability="Potable water supply",
+        parsed_need_type="Clean drinking water for group",
+        recommended_action="Deliver water rations from nearest supply point",
+        stress_level="Medium",
     ),
     Scenario(
         title="Vehicle needs fuel for evacuation",
         summary="Evacuation vehicle stranded with no fuel; movement blocked until refuel support.",
         category="fuel",
         severity=3,
+        p2p=True,
+        confidence=95,
+        required_capability="Portable fuel canister",
+        parsed_need_type="Vehicle refuelling to resume evacuation",
+        recommended_action="Dispatch fuel resupply to vehicle location",
+        stress_level="Medium",
     ),
     Scenario(
         title="Minor injury needs assessment",
         summary="Individual with non-life-threatening injury requesting first response assessment.",
         category="medical",
         severity=2,
+        p2p=True,
+        confidence=78,
+        required_capability="Basic first aid kit",
+        parsed_need_type="Wound assessment and dressing",
+        recommended_action="Send nearby peer volunteer with first aid supplies",
+        stress_level="Low",
     ),
     Scenario(
         title="Temporary shelter requested",
         summary="People exposed to weather conditions need short-term shelter and blankets.",
         category="shelter",
         severity=3,
+        p2p=True,
+        confidence=82,
+        required_capability="Emergency blankets and temporary cover",
+        parsed_need_type="Weather protection for exposed group",
+        recommended_action="Direct group to nearest shelter or deploy tent kit",
+        stress_level="Medium",
     ),
 ]
 
@@ -185,8 +227,10 @@ def insert_case_and_event(
 
     cur.execute(
         """
-        INSERT INTO "case" (id, title, summary, severity, status, category, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO "case" (id, title, summary, severity, status, category,
+            stress_level, p2p, confidence, required_capability, parsed_need_type,
+            recommended_action, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             case_id,
@@ -195,6 +239,12 @@ def insert_case_and_event(
             scenario.severity,
             "Open",
             scenario.category,
+            scenario.stress_level,
+            scenario.p2p,
+            scenario.confidence,
+            scenario.required_capability,
+            scenario.parsed_need_type,
+            scenario.recommended_action,
             timestamp,
             timestamp,
         ),
