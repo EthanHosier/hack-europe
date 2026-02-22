@@ -350,7 +350,8 @@ export const IncidentQueue = forwardRef<
     ? recentByTime
     : recentByTime.slice(0, RECENT_DEFAULT_LIMIT);
   const hiddenRecentCount = recentByTime.length - RECENT_DEFAULT_LIMIT;
-  const activeCount = unassigned.length + p2pIncidents.length;
+  // const activeCount = unassigned.length + p2pIncidents.length;
+  const activeCount = incidents.filter((i) => i.completedAt === null).length;
 
   // ── Handlers ──────────────────────────────────────────────────────────
 
