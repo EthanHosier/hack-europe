@@ -30,6 +30,7 @@ from twilio_app import (
     send_sms,
 )
 from agent import EmergencyAgent, EmergencyInfo
+from sms_speciality_handler import handle_sms_speciality_number
 
 app = FastAPI(title="HackEurope API")
 webhook_logger = logging.getLogger("uvicorn.error")
@@ -337,6 +338,17 @@ def db_health() -> DbHealthResponse:
 
 # --- Twilio SMS webhook ---
 
+# Twilio number that uses a dedicated SMS handler (+46 76 479 02 15)
+TWILIO_SPECIALITY_NUMBER = "+46764790215"
+
+
+def _normalize_phone_for_compare(phone: str) -> str:
+    """Normalize phone to E.164-like form for comparison (e.g. +46764790215)."""
+    if not phone:
+        return ""
+    digits = "".join(c for c in phone if c.isdigit())
+    return ("+" + digits) if digits else ""
+
 
 @app.post("/twilio/webhooks/sms")
 async def twilio_sms_webhook(request: Request) -> Response:
@@ -362,6 +374,11 @@ async def twilio_sms_webhook(request: Request) -> Response:
                 json.dumps(payload, ensure_ascii=False),
             )
             raise HTTPException(status_code=400, detail="Missing Twilio message fields")
+
+        # When the Twilio number called is +46 76 479 02 15, run the dedicated handler
+        if _normalize_phone_for_compare(to_number) == TWILIO_SPECIALITY_NUMBER:
+            return handle_sms_speciality_number(from_number, to_number, body, message_sid)
+           
 
         # Persist incoming message
         message_row_id = persist_text_message(
