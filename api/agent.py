@@ -31,13 +31,18 @@ class EmergencyInfo(BaseModel):
     category: Optional[str] = None  # fuel, medical, shelter, etc.
     severity: Optional[int] = 3  # 1-5 scale
     stress_level: Optional[str] = None  # Low, Medium, High
+    p2p: bool = False
+    confidence: Optional[int] = None
+    required_capability: Optional[str] = None
+    parsed_need_type: Optional[str] = None
+    recommended_action: Optional[str] = None
 
 
 class EmergencyAgent:
     def __init__(self, supabase_url: str):
         self.supabase_url = supabase_url
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-3-flash-preview",
+            model="gemini-2.0-flash",
             temperature=0.7,
             # max_tokens=None,
             timeout=None,
@@ -195,6 +200,52 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
             print(f"Traceback: {traceback.format_exc()}")
             return EmergencyInfo()
 
+    def analyse_emergency(self, info: EmergencyInfo) -> EmergencyInfo:
+        """Use LLM to populate analysis fields on the emergency info."""
+        prompt = f"""Given this emergency, return a JSON object with these fields:
+- "p2p": boolean — true if a non-specialist peer could help (e.g. giving food/water, basic first aid, shelter), false if specialist assistance is needed (e.g. advanced medical, heavy rescue)
+- "confidence": integer 0-100 — how likely the supplied information is accurate and complete
+- "required_capability": string (max ~10 words) — special equipment or process needed
+- "parsed_need_type": string (max ~10 words) — what the person actually needs
+- "recommended_action": string (max ~15 words) — the recommended action to take
+
+Emergency details:
+- Category: {info.category or 'unknown'}
+- Severity: {info.severity}/5
+- Description: {info.emergency_description or 'N/A'}
+- Location: {info.location or 'N/A'}
+
+Return ONLY valid JSON, no markdown."""
+
+        try:
+            response = self.llm.invoke([
+                SystemMessage(content="You are a triage analyst. Return only valid JSON."),
+                HumanMessage(content=prompt),
+            ])
+            content = response.content
+            if isinstance(content, list):
+                content = "".join(
+                    block.get("text", "") if isinstance(block, dict) else str(block)
+                    for block in content
+                ).strip()
+            else:
+                content = str(content).strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            data = json.loads(content.strip())
+            info.p2p = bool(data.get("p2p", False))
+            info.confidence = int(data["confidence"]) if data.get("confidence") is not None else None
+            info.required_capability = data.get("required_capability")
+            info.parsed_need_type = data.get("parsed_need_type")
+            info.recommended_action = data.get("recommended_action")
+        except Exception as e:
+            print(f"WARNING: analyse_emergency LLM call failed: {e}")
+        return info
+
     def should_create_case(self, info: EmergencyInfo) -> bool:
         """Check if we have enough information to create a case"""
         return all(
@@ -242,8 +293,10 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
             # Create the case
             cur.execute(
                 """
-                INSERT INTO "case" (id, title, summary, severity, status, category, stress_level, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO "case" (id, title, summary, severity, status, category, stress_level,
+                    p2p, confidence, required_capability, parsed_need_type, recommended_action,
+                    created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -254,6 +307,11 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
                     "Open",
                     category,
                     info.stress_level,
+                    info.p2p,
+                    info.confidence,
+                    info.required_capability,
+                    info.parsed_need_type,
+                    info.recommended_action,
                     now,
                     now,
                 ),
@@ -345,6 +403,7 @@ Remember: Be professional, calm, and reassuring. People are in distress."""
         case_id = None
         responder_notification = None
         if self.should_create_case(info):
+            info = self.analyse_emergency(info)
             try:
                 with psycopg.connect(db_url, row_factory=dict_row) as conn:
                     case_id = self.create_case(info, user_id, conn)
