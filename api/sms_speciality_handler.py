@@ -75,7 +75,7 @@ def _persist_speciality_message(phone_from: str, text_content: str) -> None:
 
 
 FIRST_MESSAGE_REPLY = (
-    "Thanks for reaching out! Please reply with your name and a description of your skills and your location."
+    "Responder line. Send your name, skills (e.g. first aid, CPR) and your location so we can match you to nearby emergencies."
 )
 
 GEMINI_MODEL = "gemini-2.5-flash"
