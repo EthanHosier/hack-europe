@@ -1,15 +1,13 @@
-import { Activity, Shield, MapPin, CheckCircle2 } from "lucide-react";
+import { Activity, Shield, CheckCircle2 } from "lucide-react";
 
 interface TopBarProps {
   activeIncidents: number;
   activeResponders: number;
-  regionsMonitored: number;
 }
 
 export function TopBar({
   activeIncidents,
   activeResponders,
-  regionsMonitored,
 }: TopBarProps) {
   return (
     <div className="h-14 bg-[#0f1419] border-b border-[#1e2530] flex items-center justify-between px-6">
@@ -47,18 +45,6 @@ export function TopBar({
             </span>
             <span className="text-[15px] text-[#e8eaed] font-[500] tabular-nums">
               {activeResponders}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <MapPin className="w-4 h-4 text-[#5b8dbf]" />
-          <div className="flex flex-col">
-            <span className="text-[11px] text-[#6b7280] uppercase tracking-wider">
-              Regions Monitored
-            </span>
-            <span className="text-[15px] text-[#e8eaed] font-[500] tabular-nums">
-              {regionsMonitored}
             </span>
           </div>
         </div>

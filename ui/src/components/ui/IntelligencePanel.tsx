@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Brain,
   CheckCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Loader2,
   Navigation,
   Send,
   Shield,
@@ -48,6 +50,28 @@ export function IntelligencePanel({
   isResolving = false,
 }: IntelligencePanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [dispatchStates, setDispatchStates] = useState<
+    Record<string, "idle" | "requesting" | "dispatched">
+  >({});
+  const [candidatesCollapsed, setCandidatesCollapsed] = useState(false);
+  const hasAutoCollapsedRef = useRef(false);
+
+  useEffect(() => {
+    setDispatchStates({});
+    setCandidatesCollapsed(false);
+    hasAutoCollapsedRef.current = false;
+  }, [selectedIncident?.id]);
+
+  useEffect(() => {
+    if (hasAutoCollapsedRef.current) return;
+    const hasDispatched = Object.values(dispatchStates).some(
+      (s) => s === "dispatched",
+    );
+    if (hasDispatched) {
+      setCandidatesCollapsed(true);
+      hasAutoCollapsedRef.current = true;
+    }
+  }, [dispatchStates]);
 
   if (collapsed) {
     return (
@@ -102,10 +126,10 @@ export function IntelligencePanel({
     selectedIncident.severity === "critical"
       ? "CRITICAL"
       : selectedIncident.severity === "high"
-      ? "HIGH"
-      : selectedIncident.severity === "moderate"
-      ? "MODERATE"
-      : "LOW";
+        ? "HIGH"
+        : selectedIncident.severity === "moderate"
+          ? "MODERATE"
+          : "LOW";
 
   return (
     <div className="w-[380px] bg-[#0f1419] border-l border-[#1e2530] flex flex-col">
@@ -114,7 +138,7 @@ export function IntelligencePanel({
         <div className="h-12 border-b border-[#1e2530] flex items-center px-4 gap-2">
           <Brain className="w-4 h-4 text-[#5b8dbf]" />
           <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500] flex-1">
-            AI Operational Analysis
+            Information
           </span>
           <button
             onClick={() => setCollapsed(true)}
@@ -127,12 +151,12 @@ export function IntelligencePanel({
 
         {hasAnalysis ? (
           <div className="p-4 space-y-4">
-            {/* Confidence Score */}
+            {/* AI Accuracy Confidence Score */}
             {selectedIncident.confidence != null && (
               <div className="bg-[#141825] border border-[#2a3441] rounded p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] text-[#6b7280] uppercase tracking-wider">
-                    Confidence
+                    Accuracy Confidence
                   </span>
                   <span className="text-[14px] text-[#e8eaed] font-[500] tabular-nums">
                     {selectedIncident.confidence}%
@@ -210,97 +234,189 @@ export function IntelligencePanel({
         )}
       </div>
 
-      {/* Responder Candidates Section */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="h-12 border-b border-[#1e2530] flex items-center px-4">
-          <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500]">
-            Responder Candidates
-          </span>
-          <span className="ml-auto text-[12px] text-[#5b8dbf] tabular-nums font-[500]">
-            {responders.length}
-          </span>
-        </div>
-
-        <div className="flex-1 overflow-y-auto pb-16">
-          {responders.map((responder) => {
-            const VerificationIcon =
-              verificationIcons[responder.verificationLevel];
-
-            return (
-              <div
-                key={responder.id}
-                className="px-4 py-3 border-b border-[#1e2530] hover:bg-[#141825] transition-colors"
-              >
-                <div className="flex items-start justify-between mb-2">
+      {/* Dispatched Responders */}
+      {responders.some((r) => dispatchStates[r.id] === "dispatched") && (
+        <div className="border-b border-[#1e2530] shrink-0">
+          <div className="h-10 flex items-center px-4 gap-2">
+            <CheckCircle className="w-3.5 h-3.5 text-[#22c55e]" />
+            <span className="text-[11px] text-[#22c55e] uppercase tracking-wider font-[500]">
+              Dispatched
+            </span>
+          </div>
+          {responders
+            .filter((r) => dispatchStates[r.id] === "dispatched")
+            .map((responder) => {
+              const VerificationIcon =
+                verificationIcons[responder.verificationLevel];
+              return (
+                <div
+                  key={responder.id}
+                  className="px-4 py-2.5 border-t border-[#22c55e18] bg-[#22c55e08] flex items-center justify-between"
+                >
                   <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[13px] text-[#e8eaed] font-[500]">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[12px] text-[#e8eaed] font-[500]">
                         {responder.name}
                       </span>
                       <VerificationIcon
-                        className={`w-3.5 h-3.5 ${
-                          responder.verificationLevel === "verified"
-                            ? "text-[#3d7a5e]"
-                            : "text-[#6b7280]"
-                        }`}
+                        className={`w-3 h-3 ${responder.verificationLevel === "verified" ? "text-[#3d7a5e]" : "text-[#6b7280]"}`}
                       />
                     </div>
-                    <div className="text-[11px] text-[#6b7280]">
+                    <div className="text-[10px] text-[#6b7280]">
                       {responder.role}
                     </div>
                   </div>
-
                   <div className="flex items-center gap-1.5">
                     <Navigation className="w-3 h-3 text-[#6b7280]" />
-                    <span className="text-[11px] text-[#9ca3af] tabular-nums">
+                    <span className="text-[10px] text-[#9ca3af] tabular-nums">
                       {responder.distance} km
                     </span>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="flex items-center gap-1.5">
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{
-                        backgroundColor:
-                          availabilityColors[responder.availability],
-                      }}
-                    />
-                    <span className="text-[10px] text-[#9ca3af] capitalize">
-                      {responder.availability}
-                    </span>
-                  </div>
-
-                  <div className="h-3 w-px bg-[#2a3441]" />
-
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {responder.skills.slice(0, 2).map((skill, index) => (
-                      <span
-                        key={index}
-                        className="text-[9px] px-1.5 py-0.5 bg-[#1a2332] text-[#6b7280] rounded uppercase tracking-wider"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => onDispatch(responder.id, selectedIncident.id)}
-                  disabled={responder.availability === "busy"}
-                  className="w-full h-8 bg-[#1a2332] hover:bg-[#5b8dbf] disabled:hover:bg-[#1a2332] border border-[#2a3441] rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
-                >
-                  <Send className="w-3.5 h-3.5 text-[#9ca3af] group-hover:text-white transition-colors" />
-                  <span className="text-[11px] text-[#9ca3af] group-hover:text-white uppercase tracking-wider font-[500] transition-colors">
-                    Dispatch
-                  </span>
-                </button>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
-      </div>
+      )}
+
+      {/* Responder Candidates Section */}
+      {(() => {
+        const hasDispatched = Object.values(dispatchStates).some(
+          (s) => s === "dispatched",
+        );
+        return (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <button
+              onClick={() => setCandidatesCollapsed((c) => !c)}
+              className="h-12 border-b border-[#1e2530] flex items-center px-4 w-full hover:bg-[#141825] transition-colors shrink-0"
+            >
+              <span className="text-[12px] text-[#9ca3af] uppercase tracking-wider font-[500]">
+                {hasDispatched
+                  ? "Additional Responder Candidates"
+                  : "Responder Candidates"}
+              </span>
+              <span className="ml-2 text-[12px] text-[#5b8dbf] tabular-nums font-[500]">
+                {
+                  responders.filter(
+                    (r) => dispatchStates[r.id] !== "dispatched",
+                  ).length
+                }
+              </span>
+              <ChevronDown
+                className={`ml-auto w-3.5 h-3.5 text-[#6b7280] transition-transform duration-200 ${candidatesCollapsed ? "-rotate-90" : ""}`}
+              />
+            </button>
+
+            {!candidatesCollapsed && (
+              <div className="flex-1 overflow-y-auto pb-16">
+                {responders
+                  .filter((r) => dispatchStates[r.id] !== "dispatched")
+                  .map((responder) => {
+                    const VerificationIcon =
+                      verificationIcons[responder.verificationLevel];
+                    const ds = dispatchStates[responder.id] ?? "idle";
+                    const isBusy = responder.availability === "busy";
+
+                    return (
+                      <div
+                        key={responder.id}
+                        className="px-4 py-3 border-b border-[#1e2530] hover:bg-[#141825] transition-colors"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[13px] text-[#e8eaed] font-[500]">
+                                {responder.name}
+                              </span>
+                              <VerificationIcon
+                                className={`w-3.5 h-3.5 ${
+                                  responder.verificationLevel === "verified"
+                                    ? "text-[#3d7a5e]"
+                                    : "text-[#6b7280]"
+                                }`}
+                              />
+                            </div>
+                            <div className="text-[11px] text-[#6b7280]">
+                              {responder.role}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <Navigation className="w-3 h-3 text-[#6b7280]" />
+                            <span className="text-[11px] text-[#9ca3af] tabular-nums">
+                              {responder.distance} km
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className="w-2 h-2 rounded-full"
+                              style={{
+                                backgroundColor:
+                                  availabilityColors[responder.availability],
+                              }}
+                            />
+                            <span className="text-[10px] text-[#9ca3af] capitalize">
+                              {responder.availability}
+                            </span>
+                          </div>
+
+                          <div className="h-3 w-px bg-[#2a3441]" />
+
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {responder.skills
+                              .slice(0, 2)
+                              .map((skill, index) => (
+                                <span
+                                  key={index}
+                                  className="text-[9px] px-1.5 py-0.5 bg-[#1a2332] text-[#6b7280] rounded uppercase tracking-wider"
+                                >
+                                  {skill}
+                                </span>
+                              ))}
+                          </div>
+                        </div>
+
+                        {ds === "requesting" ? (
+                          <div className="w-full h-8 bg-[#B8741A18] border border-[#B8741A40] rounded flex items-center justify-center gap-2">
+                            <Loader2 className="w-3.5 h-3.5 text-[#B8741A] animate-spin" />
+                            <span className="text-[11px] text-[#B8741A] uppercase tracking-wider font-[500]">
+                              Requesting…
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setDispatchStates((prev) => ({
+                                ...prev,
+                                [responder.id]: "requesting",
+                              }));
+                              onDispatch(responder.id, selectedIncident.id);
+                              setTimeout(() => {
+                                setDispatchStates((prev) => ({
+                                  ...prev,
+                                  [responder.id]: "dispatched",
+                                }));
+                              }, 1500);
+                            }}
+                            disabled={isBusy}
+                            className="w-full h-8 bg-[#1a2332] hover:bg-[#5b8dbf] disabled:hover:bg-[#1a2332] border border-[#2a3441] rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer group"
+                          >
+                            <Send className="w-3.5 h-3.5 text-[#9ca3af] group-hover:text-white transition-colors" />
+                            <span className="text-[11px] text-[#9ca3af] group-hover:text-white uppercase tracking-wider font-[500] transition-colors">
+                              Dispatch
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Resolve button */}
       {!selectedIncident.completedAt && onMarkResolved && (

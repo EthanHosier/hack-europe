@@ -259,7 +259,6 @@ export default function App() {
         activeResponders={
           mockResponders.filter((r) => r.availability === "available").length
         }
-        regionsMonitored={1}
       />
 
       <div className="flex-1 flex overflow-hidden">
