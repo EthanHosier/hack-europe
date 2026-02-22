@@ -50,13 +50,14 @@ def validate_twilio_signature(
     return validator.validate(request_url, dict(form_data), signature)
 
 
-def send_sms(to_number: str, body: str) -> SentSmsResult:
+def send_sms(to_number: str, body: str, from_number: str | None = None) -> SentSmsResult:
     import logging
     logger = logging.getLogger(__name__)
 
     logger.info(f"DEBUG send_sms: Attempting to send SMS to {to_number}, body length: {len(body)}")
 
-    client, from_number = get_twilio_client()
+    client, f = get_twilio_client()
+    from_number = from_number or f
     try:
         message = client.messages.create(to=to_number, from_=from_number, body=body)
         logger.info(f"DEBUG send_sms: Successfully created message sid={message.sid}, status={message.status}")

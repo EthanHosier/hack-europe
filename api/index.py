@@ -362,7 +362,7 @@ def db_health() -> DbHealthResponse:
 # --- Twilio SMS webhook ---
 
 # Twilio number that uses a dedicated SMS handler (+46 76 479 02 15)
-TWILIO_SPECIALITY_NUMBER = "+46764790215"
+TWILIO_SPECIALITY_NUMBER = "+46764790083"
 
 
 def _normalize_phone_for_compare(phone: str) -> str:
@@ -974,7 +974,7 @@ def dispatch_case_to_user(body: DispatchCaseToUserRequest) -> DispatchCaseToUser
         f"Reply YES if you can respond."
     )
     try:
-        send_sms(user_row["phone"], message)
+        send_sms(user_row["phone"], message, from_number=TWILIO_SPECIALITY_NUMBER)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"SMS send failed: {e}")
 
