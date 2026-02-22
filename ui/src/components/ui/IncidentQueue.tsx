@@ -27,6 +27,11 @@ export interface Incident {
   lat: number;
   lng: number;
   completedAt: Date | null;
+  p2p: boolean;
+  confidence: number | null;
+  requiredCapability: string | null;
+  parsedNeedType: string | null;
+  recommendedAction: string | null;
 }
 
 interface IncidentQueueProps {
