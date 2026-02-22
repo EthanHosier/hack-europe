@@ -7,7 +7,10 @@ import type {
 } from "@/components/ui/IncidentQueue";
 import { MapView } from "@/components/ui/MapView";
 import { IntelligencePanel } from "@/components/ui/IntelligencePanel";
-import { useGetLiveEventsEventsLiveGet } from "@/api/generated/endpoints";
+import {
+  useGetLiveEventsEventsLiveGet,
+  useDispatchCaseToUserCasesDispatchCaseToUserPost,
+} from "@/api/generated/endpoints";
 import type { LiveEventResponse } from "@/api/generated/schemas";
 import { useCompleteCase } from "@/lib/useCompleteCase";
 // import { generateTestIncidents } from "./test/generatePoints";
@@ -259,11 +262,13 @@ export default function App() {
     completeCase({ caseId });
   };
 
+  const { mutate: dispatchCase } =
+    useDispatchCaseToUserCasesDispatchCaseToUserPost();
+
   const handleDispatch = (responderId: string, incidentId: string) => {
-    // TODO: trigger API call to dispatch responder to incident - update state in BE
-    console.log(
-      `Dispatching responder ${responderId} to incident ${incidentId}`
-    );
+    const caseId = liveEvents.find((ev) => ev.event_id === incidentId)?.case_id;
+    if (!caseId) return;
+    dispatchCase({ data: { case_id: caseId, user_id: responderId } });
   };
 
   const dispatchedResponders = useMemo(() => {

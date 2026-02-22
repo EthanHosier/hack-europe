@@ -268,25 +268,20 @@ def _persist_parsed_speciality(
                 )
             conn.commit()
 
-def get_user_id_from_phone(phone: str) -> str:
+def get_user_id_from_phone(phone: str) -> str | None:
     with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT id FROM "user" WHERE phone = %s LIMIT 1""",
                 (phone.strip(),),
             )
-            return cur.fetchone()[0]
+            row = cur.fetchone()
+            return str(row[0]) if row else None
 
 def _get_case_assigned_to_user(user_id: str) -> dict | None:
-    """Look up user by id, then return the case assigned to that user (most recent notified assignment for an open case), or None."""
+    """Return the case assigned to that user (most recent notified assignment for an open case), or None."""
     with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """SELECT id FROM "user" WHERE id = %s LIMIT 1""",
-                (user_id.strip(),),
-            )
-            if cur.fetchone() is None:
-                return None
             cur.execute(
                 """
                 SELECT ra.case_id, ra.id AS assignment_id, ra.status, c.title, c.summary
@@ -303,26 +298,30 @@ def _get_case_assigned_to_user(user_id: str) -> dict | None:
                 return None
             return dict(row)
 
-def _accept_case_to_user(user_id: str, case_id: str) -> None:
+def _accept_case_to_user(user_id: str, case_id: str, to_phone: str) -> None:
+    uid = user_id.strip() if isinstance(user_id, str) else str(user_id)
+    cid = case_id.strip() if isinstance(case_id, str) else str(case_id)
     with psycopg.connect(SUPABASE_POSTGRES_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """UPDATE responder_assignment SET status = 'accepted' WHERE responder_id = %s AND case_id = %s""",
-                (user_id.strip(), case_id.strip()),
+                (uid, cid),
             )
             conn.commit()
-        
-    send_sms(user_id, "Case accepted", from_number=TWILIO_SPECIALITY_NUMBER)
+
+    send_sms(to_phone, "Case accepted", from_number=TWILIO_SPECIALITY_NUMBER)
 
 def handle_sms_speciality_number(
     from_number: str, to_number: str, body: str, message_sid: str | None
 ) -> Response:
     if body == "YES":
-        case = _get_case_assigned_to_user(from_number)
+        user_id = get_user_id_from_phone(from_number)
+        if user_id is None:
+            return SUCCESS_RESPONSE
+        case = _get_case_assigned_to_user(user_id)
         if case is None:
             return SUCCESS_RESPONSE
-
-        _accept_case_to_user(from_number, case["case_id"])
+        _accept_case_to_user(user_id, case["case_id"], from_number)
         return SUCCESS_RESPONSE
 
     historic = load_historic_speciality_messages(from_number)
