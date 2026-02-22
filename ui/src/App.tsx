@@ -49,7 +49,6 @@ function toIncidentStatus(caseStatus: string): Incident["status"] {
 
 function toIncident(event: LiveEventResponse): Incident {
   const parsedTimestamp = new Date(event.timestamp);
-  console.warn("Parsing event into incident:", event);
   return {
     id: event.event_id,
     type: incidentTypeByCategory[event.case_category ?? "other"] ?? "other",
