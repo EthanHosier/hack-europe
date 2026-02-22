@@ -2,10 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl, { type GeoJSONSource } from "mapbox-gl";
 import type { Incident } from "./IncidentQueue";
 
+export interface DispatchedResponder {
+  id: string;
+  lat: number;
+  lng: number;
+}
+
 interface MapViewProps {
   incidents: Incident[];
   selectedId: string | null;
   onSelectIncident: (id: string) => void;
+  dispatchedResponders: DispatchedResponder[];
 }
 
 const severityColors = {
@@ -27,6 +34,8 @@ const MAPBOX_ACCESS_TOKEN =
   "UxazFmcDgybG03bW56ZTc0d3gifQ.iWzQyehvRTR5inI5Q4tp9g";
 const CLUSTERED_SOURCE_ID = "incidents-clustered";
 const HEATMAP_SOURCE_ID = "incidents-heatmap-src";
+const RESPONDER_ROUTES_SOURCE_ID = "responder-routes-src";
+const RESPONDER_DOTS_SOURCE_ID = "responder-dots-src";
 const STOCKHOLM_CENTER: [number, number] = [18.0686, 59.3293];
 
 const HEAT_FADE_START = 11;
@@ -444,6 +453,15 @@ function applySeeingStoneTechTheme(map: mapboxgl.Map) {
       maxzoom: 14,
     });
   }
+  // Separate source for hillshade so terrain can use full resolution independently
+  if (!map.getSource("mapbox-dem-hillshade")) {
+    map.addSource("mapbox-dem-hillshade", {
+      type: "raster-dem",
+      url: "mapbox://mapbox.terrain-rgb",
+      tileSize: 512,
+      maxzoom: 14,
+    });
+  }
   map.setTerrain({ source: "mapbox-dem", exaggeration: 1.15 });
 
   const labelLayerId = map
@@ -455,7 +473,7 @@ function applySeeingStoneTechTheme(map: mapboxgl.Map) {
       {
         id: "terrain-hillshade",
         type: "hillshade",
-        source: "mapbox-dem",
+        source: "mapbox-dem-hillshade",
         paint: {
           "hillshade-shadow-color": "#2F3B4A",
           "hillshade-highlight-color": "#F7FAFF",
@@ -532,6 +550,7 @@ export function MapView({
   incidents,
   selectedId,
   onSelectIncident,
+  dispatchedResponders,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -539,6 +558,7 @@ export function MapView({
   const selectedIdRef = useRef(selectedId);
   const onSelectIncidentRef = useRef(onSelectIncident);
   const incidentsRef = useRef(incidents);
+  const dispatchedRespondersRef = useRef(dispatchedResponders);
 
   // Marker pools for donut clusters
   const markersRef = useRef<Record<number, mapboxgl.Marker>>({});
@@ -554,6 +574,9 @@ export function MapView({
   useEffect(() => {
     incidentsRef.current = incidents;
   }, [incidents]);
+  useEffect(() => {
+    dispatchedRespondersRef.current = dispatchedResponders;
+  }, [dispatchedResponders]);
 
   const incidentGeoJson = useMemo(
     () => toIncidentGeoJson(incidents),
@@ -627,6 +650,47 @@ export function MapView({
       addNonClusterLayers(map, selectedIdRef.current);
       applySeeingStoneTechTheme(map);
       applyViewMode(map, "heatmap", markersOnScreenRef.current);
+
+      // ── Responder route + dot layers (data filled by useEffect) ───────────
+      const emptyCollection: GeoJSON.FeatureCollection = {
+        type: "FeatureCollection",
+        features: [],
+      };
+      map.addSource(RESPONDER_ROUTES_SOURCE_ID, {
+        type: "geojson",
+        data: emptyCollection,
+      });
+      map.addSource(RESPONDER_DOTS_SOURCE_ID, {
+        type: "geojson",
+        data: emptyCollection,
+      });
+      const beforeLabel = getFirstExistingLabelLayer(map);
+      map.addLayer(
+        {
+          id: "responder-routes",
+          type: "line",
+          source: RESPONDER_ROUTES_SOURCE_ID,
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#22c55e",
+            "line-width": 3.5,
+            "line-opacity": 0.85,
+          },
+        },
+        beforeLabel,
+      );
+      map.addLayer({
+        id: "responder-dots",
+        type: "circle",
+        source: RESPONDER_DOTS_SOURCE_ID,
+        paint: {
+          "circle-color": "#22c55e",
+          "circle-radius": 8,
+          "circle-stroke-color": "#0a0e1a",
+          "circle-stroke-width": 2,
+          "circle-opacity": 1,
+        },
+      });
 
       // ── Donut HTML marker management ──────────────────────────────────────
       function updateDonutMarkers() {
@@ -772,6 +836,82 @@ export function MapView({
       }
     }
   }, [selectedId, incidents]);
+
+  // Responder routes + dots — fetch Directions API and update sources
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const empty: GeoJSON.FeatureCollection = {
+      type: "FeatureCollection",
+      features: [],
+    };
+    const routeSrc = map.getSource(RESPONDER_ROUTES_SOURCE_ID) as
+      | GeoJSONSource
+      | undefined;
+    const dotSrc = map.getSource(RESPONDER_DOTS_SOURCE_ID) as
+      | GeoJSONSource
+      | undefined;
+
+    // Sources not yet added (map not loaded yet) — skip
+    if (!routeSrc || !dotSrc) return;
+
+    routeSrc.setData(empty);
+    dotSrc.setData(empty);
+
+    if (!selectedId || dispatchedResponders.length === 0) return;
+
+    const incident = incidentsRef.current.find((i) => i.id === selectedId);
+    if (!incident) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const routeFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
+      const dotFeatures: GeoJSON.Feature<GeoJSON.Point>[] = [];
+
+      await Promise.all(
+        dispatchedResponders.map(async (responder) => {
+          dotFeatures.push({
+            type: "Feature",
+            geometry: {
+              type: "Point",
+              coordinates: [responder.lng, responder.lat],
+            },
+            properties: { id: responder.id },
+          });
+
+          try {
+            const res = await fetch(
+              `https://api.mapbox.com/directions/v5/mapbox/driving/${responder.lng},${responder.lat};${incident.lng},${incident.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_ACCESS_TOKEN}`,
+            );
+            const json = (await res.json()) as {
+              routes?: Array<{ geometry: GeoJSON.LineString }>;
+            };
+            const geometry = json.routes?.[0]?.geometry;
+            if (geometry) {
+              routeFeatures.push({
+                type: "Feature",
+                geometry,
+                properties: { id: responder.id },
+              });
+            }
+          } catch {
+            // ignore individual route failures
+          }
+        }),
+      );
+
+      if (cancelled) return;
+
+      routeSrc.setData({ type: "FeatureCollection", features: routeFeatures });
+      dotSrc.setData({ type: "FeatureCollection", features: dotFeatures });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, dispatchedResponders]);
 
   // View mode switch
   useEffect(() => {

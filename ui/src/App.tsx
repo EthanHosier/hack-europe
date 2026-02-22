@@ -83,6 +83,8 @@ const mockResponders = [
     availability: "available" as const,
     verificationLevel: "verified" as const,
     skills: ["ALS", "Cardiac", "Trauma"],
+    lat: 59.342,
+    lng: 18.045,
   },
   {
     id: "r2",
@@ -92,6 +94,8 @@ const mockResponders = [
     availability: "available" as const,
     verificationLevel: "verified" as const,
     skills: ["BLS", "CPR", "First Aid"],
+    lat: 59.318,
+    lng: 18.092,
   },
   {
     id: "r3",
@@ -101,6 +105,8 @@ const mockResponders = [
     availability: "on-call" as const,
     verificationLevel: "verified" as const,
     skills: ["ALS", "Pediatric", "ICU"],
+    lat: 59.305,
+    lng: 18.068,
   },
   {
     id: "r4",
@@ -110,6 +116,8 @@ const mockResponders = [
     availability: "available" as const,
     verificationLevel: "verified" as const,
     skills: ["ALS", "Command", "Triage"],
+    lat: 59.337,
+    lng: 18.022,
   },
   {
     id: "r5",
@@ -119,6 +127,8 @@ const mockResponders = [
     availability: "busy" as const,
     verificationLevel: "verified" as const,
     skills: ["BLS", "Transport"],
+    lat: 59.35,
+    lng: 18.11,
   },
   {
     id: "r6",
@@ -128,6 +138,8 @@ const mockResponders = [
     availability: "available" as const,
     verificationLevel: "pending" as const,
     skills: ["ALS", "Airway", "Cardiac"],
+    lat: 59.298,
+    lng: 18.075,
   },
 ];
 
@@ -139,6 +151,9 @@ export default function App() {
   const [queueViewMode, setQueueViewMode] = useState<"active" | "historical">(
     "active",
   );
+  const [dispatchedByIncident, setDispatchedByIncident] = useState<
+    Record<string, string[]>
+  >({});
 
   const { completeCase, isResolving } = useCompleteCase();
 
@@ -208,11 +223,22 @@ export default function App() {
   };
 
   const handleDispatch = (responderId: string, incidentId: string) => {
-    // TODO: trigger API call to dispatch responder to incident - update state in BE
-    console.log(
-      `Dispatching responder ${responderId} to incident ${incidentId}`,
-    );
+    // Match the 1500ms animation delay in IntelligencePanel
+    setTimeout(() => {
+      setDispatchedByIncident((prev) => ({
+        ...prev,
+        [incidentId]: [...(prev[incidentId] ?? []), responderId],
+      }));
+    }, 1500);
   };
+
+  const dispatchedResponders = useMemo(() => {
+    if (!selectedIncidentId) return [];
+    const ids = dispatchedByIncident[selectedIncidentId] ?? [];
+    return mockResponders
+      .filter((r) => ids.includes(r.id))
+      .map((r) => ({ id: r.id, lat: r.lat, lng: r.lng }));
+  }, [selectedIncidentId, dispatchedByIncident]);
 
   const handleToggleType = (type: Incident["type"]) => {
     setSelectedTypes((prev) =>
@@ -284,6 +310,7 @@ export default function App() {
           incidents={mapIncidents}
           selectedId={selectedIncidentId}
           onSelectIncident={handleMapSelect}
+          dispatchedResponders={dispatchedResponders}
         />
 
         <IntelligencePanel
