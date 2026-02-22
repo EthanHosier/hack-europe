@@ -28,6 +28,7 @@ import {
 
 export interface Incident {
   id: string;
+  caseId: string;
   type: "fire" | "medical" | "rescue" | "disaster" | "emergency" | "other";
   description: string;
   region: string;
@@ -148,7 +149,9 @@ function IncidentCard({
     <div
       ref={itemRef}
       onClick={onClick}
-      className={`px-4 py-3 border-b border-[#1e2530] cursor-pointer transition-colors duration-500 ${completed ? "opacity-60" : ""} ${bgClass}`}
+      className={`px-4 py-3 border-b border-[#1e2530] cursor-pointer transition-colors duration-500 ${
+        completed ? "opacity-60" : ""
+      } ${bgClass}`}
     >
       <div className="flex items-start gap-3">
         <div
@@ -230,7 +233,7 @@ export const IncidentQueue = forwardRef<
     viewMode,
     onViewModeChange,
   },
-  ref,
+  ref
 ) {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const filterRef = useRef<HTMLDivElement | null>(null);
@@ -288,7 +291,7 @@ export const IncidentQueue = forwardRef<
       selectedTypes.length === 0
         ? incidents
         : incidents.filter((i) => selectedTypes.includes(i.type)),
-    [incidents, selectedTypes],
+    [incidents, selectedTypes]
   );
 
   // Active = not yet completed (unassigned or currently being matched)
@@ -302,7 +305,7 @@ export const IncidentQueue = forwardRef<
             !i.p2p,
         ),
       ),
-    [filtered],
+    [filtered]
   );
 
   const p2pIncidents = useMemo(
@@ -315,7 +318,7 @@ export const IncidentQueue = forwardRef<
             i.p2p,
         ),
       ),
-    [filtered],
+    [filtered]
   );
 
   // Historical = completedAt set OR status === "assigned"
@@ -323,24 +326,24 @@ export const IncidentQueue = forwardRef<
     () =>
       [
         ...filtered.filter(
-          (i) => i.completedAt !== null || i.status === "assigned",
+          (i) => i.completedAt !== null || i.status === "assigned"
         ),
       ].sort((a, b) => {
         const aTime = (a.completedAt ?? a.timestamp).getTime();
         const bTime = (b.completedAt ?? b.timestamp).getTime();
         return bTime - aTime;
       }),
-    [filtered],
+    [filtered]
   );
 
   const recentByTime = useMemo(
     () =>
       [
         ...filtered.filter(
-          (i) => i.completedAt === null && i.status !== "assigned",
+          (i) => i.completedAt === null && i.status !== "assigned"
         ),
       ].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()),
-    [filtered],
+    [filtered]
   );
 
   const visibleRecent = recentExpanded
@@ -367,7 +370,7 @@ export const IncidentQueue = forwardRef<
       });
       setTimeout(() => setFlashId(null), 1000);
     },
-    [onSelectIncident, p2pIncidents],
+    [onSelectIncident, p2pIncidents]
   );
 
   const handleRemoveTag =

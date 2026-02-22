@@ -113,6 +113,7 @@ class SearchUsersBySpecialityRequest(BaseModel):
 
 class UserWithNotifiedResponse(UserResponse):
     notified_for_case: bool = False
+    accepted_for_case: bool = False
     skills: List[str] = []
     distance_km: Optional[float] = None
 
@@ -927,6 +928,7 @@ def search_users_by_speciality(
         r = dict(r)
         r["id"] = str(r["id"])
         r["skills"] = list(r["skills"]) if r.get("skills") else []
+        r["accepted_for_case"] = bool(r.get("accepted_for_case"))
         # Use RPC distance when present (migration 025); else compute so response is never null
         if r.get("distance_km") is not None:
             r["distance_km"] = round(float(r["distance_km"]), 2)

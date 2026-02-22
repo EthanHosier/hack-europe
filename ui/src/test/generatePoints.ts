@@ -361,6 +361,7 @@ export function generateTestIncidents(
 
     incidents.push({
       id: `test-${i.toString().padStart(4, "0")}`,
+      caseId: `test-case-${i.toString().padStart(4, "0")}`,
       type,
       description: DESCRIPTIONS[type][descIdx],
       region: regionName,
