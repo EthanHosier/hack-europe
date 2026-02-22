@@ -133,6 +133,9 @@ export default function App() {
     null,
   );
   const [selectedTypes, setSelectedTypes] = useState<Incident["type"][]>([]);
+  const [queueViewMode, setQueueViewMode] = useState<"active" | "historical">(
+    "active",
+  );
 
   const { completeCase, isResolving } = useCompleteCase();
 
@@ -157,6 +160,18 @@ export default function App() {
         : incidents.filter((incident) => selectedTypes.includes(incident.type)),
     [incidents, selectedTypes],
   );
+  const mapIncidents = useMemo(
+    () =>
+      queueViewMode === "active"
+        ? filteredIncidents.filter(
+            (i) => i.completedAt === null && i.status !== "assigned",
+          )
+        : filteredIncidents.filter(
+            (i) => i.completedAt !== null || i.status === "assigned",
+          ),
+    [filteredIncidents, queueViewMode],
+  );
+
   const incidentTypeCounts = useMemo<Record<Incident["type"], number>>(
     () =>
       incidents.reduce(
@@ -258,10 +273,12 @@ export default function App() {
           incidentTypeCounts={incidentTypeCounts}
           onToggleType={handleToggleType}
           onClearAllTypes={handleClearAllTypes}
+          viewMode={queueViewMode}
+          onViewModeChange={setQueueViewMode}
         />
 
         <MapView
-          incidents={filteredIncidents}
+          incidents={mapIncidents}
           selectedId={selectedIncidentId}
           onSelectIncident={handleMapSelect}
         />

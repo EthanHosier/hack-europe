@@ -51,6 +51,8 @@ interface IncidentQueueProps {
   incidentTypeCounts: Record<Incident["type"], number>;
   onToggleType: (type: Incident["type"]) => void;
   onClearAllTypes: () => void;
+  viewMode: "active" | "historical";
+  onViewModeChange: (mode: "active" | "historical") => void;
 }
 
 export interface IncidentQueueHandle {
@@ -223,13 +225,14 @@ export const IncidentQueue = forwardRef<
     incidentTypeCounts,
     onToggleType,
     onClearAllTypes,
+    viewMode,
+    onViewModeChange,
   },
   ref,
 ) {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const [showP2P, setShowP2P] = useState(false);
-  const [viewMode, setViewMode] = useState<"active" | "historical">("active");
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [flashId, setFlashId] = useState<string | null>(null);
 
@@ -392,7 +395,7 @@ export const IncidentQueue = forwardRef<
         </span>
         <button
           onClick={() =>
-            setViewMode((m) => (m === "active" ? "historical" : "active"))
+            onViewModeChange(viewMode === "active" ? "historical" : "active")
           }
           className={[
             "ml-auto flex items-center gap-1.5 text-[10px] px-2 py-1 rounded",
