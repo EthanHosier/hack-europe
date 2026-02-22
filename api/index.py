@@ -114,6 +114,17 @@ class UserWithNotifiedResponse(UserResponse):
     notified_for_case: bool = False
 
 
+class DispatchCaseToUserRequest(BaseModel):
+    case_id: str
+    user_id: str
+
+
+class DispatchCaseToUserResponse(BaseModel):
+    success: bool
+    message: str
+    assignment_id: Optional[str] = None
+
+
 class MessageCreate(BaseModel):
     text: str
     case_id: Optional[str] = None
@@ -908,6 +919,70 @@ def search_users_by_speciality(body: SearchUsersBySpecialityRequest) -> List[Use
         r["id"] = str(r["id"])
         out.append(UserWithNotifiedResponse(**r))
     return out
+
+
+@app.post("/cases/dispatch-case-to-user", response_model=DispatchCaseToUserResponse)
+def dispatch_case_to_user(body: DispatchCaseToUserRequest) -> DispatchCaseToUserResponse:
+    """Assign a case to a user: UPSERT responder_assignment and send SMS with case description."""
+    case_id = body.case_id.strip()
+    user_id = body.user_id.strip()
+    try:
+        case_uuid = uuid.UUID(case_id)
+        responder_uuid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid case_id or user_id")
+
+    with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, title, summary FROM "case" WHERE id = %s""",
+                (case_uuid,),
+            )
+            case_row = cur.fetchone()
+            if not case_row:
+                raise HTTPException(status_code=404, detail="Case not found")
+            cur.execute(
+                """SELECT id, name, phone FROM "user" WHERE id = %s""",
+                (responder_uuid,),
+            )
+            user_row = cur.fetchone()
+            if not user_row:
+                raise HTTPException(status_code=404, detail="User not found")
+            if not user_row.get("phone"):
+                raise HTTPException(status_code=400, detail="User has no phone number")
+
+            description = (case_row.get("summary") or case_row.get("title") or "Emergency case")[:200]
+            now = datetime.utcnow()
+            cur.execute(
+                """
+                INSERT INTO responder_assignment
+                (case_id, responder_id, status, notified_at)
+                VALUES (%s, %s, 'notified', %s)
+                ON CONFLICT (case_id, responder_id) DO UPDATE
+                SET status = 'notified', notified_at = %s
+                RETURNING id
+                """,
+                (case_uuid, responder_uuid, now, now),
+            )
+            row = cur.fetchone()
+            assignment_id = str(row["id"]) if row else None
+            conn.commit()
+
+    message = (
+        f"You have been assigned to an emergency case.\n\n"
+        f"Description: {description}\n\n"
+        f"Reply YES if you can respond."
+    )
+    try:
+        send_sms(user_row["phone"], message)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"SMS send failed: {e}")
+
+    return DispatchCaseToUserResponse(
+        success=True,
+        message="Dispatched and SMS sent",
+        assignment_id=assignment_id,
+    )
 
 
 # Emergency Request Endpoint
