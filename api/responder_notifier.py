@@ -40,7 +40,6 @@ def find_nearby_responders(
     radius_km: float = 5.0,
     needed_specialties: Optional[List[str]] = None,
     limit: int = 30,
-    only_real_numbers: bool = True,
 ) -> List[Dict]:
     """
     Find active responders within a given radius of the emergency location.
@@ -81,13 +80,12 @@ def find_nearby_responders(
                     AND u.latitude IS NOT NULL
                     AND u.longitude IS NOT NULL
                     AND u.phone IS NOT NULL
+                    AND u.has_real_number = true
                 """
 
                 # Add filter for real phone numbers if requested
                 params = []
-                if only_real_numbers:
-                    query += " AND u.has_real_number = true"
-
+             
                 # Add specialty filter if needed
                 if needed_specialties:
                     query += """
@@ -314,7 +312,6 @@ def alert_nearby_help(
         demo_radius,  # Use HUGE radius for demo
         needed_specialties,
         max_responders,
-        only_real_numbers=False,  # DEMO: Allow all numbers including test numbers
     )
 
     print(f"DEBUG: Found {len(responders)} responders")
