@@ -50,7 +50,6 @@ interface IncidentQueueProps {
   selectedTypes: Incident["type"][];
   incidentTypeCounts: Record<Incident["type"], number>;
   onToggleType: (type: Incident["type"]) => void;
-  onSelectAllTypes: () => void; // restored from doc13
   onClearAllTypes: () => void;
 }
 
@@ -223,7 +222,6 @@ export const IncidentQueue = forwardRef<
     selectedTypes,
     incidentTypeCounts,
     onToggleType,
-    onSelectAllTypes,
     onClearAllTypes,
   },
   ref,
@@ -453,23 +451,6 @@ export const IncidentQueue = forwardRef<
             </div>
           </summary>
           <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-full rounded border border-[#2a3340] bg-[#101723] p-2 shadow-lg">
-            {/* All / None buttons restored from doc13 */}
-            <div className="mb-2 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={onSelectAllTypes}
-                className="text-[10px] uppercase tracking-wider text-[#5b8dbf] hover:text-[#7ea8d1]"
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={onClearAllTypes}
-                className="text-[10px] uppercase tracking-wider text-[#6b7280] hover:text-[#9ca3af]"
-              >
-                None
-              </button>
-            </div>
             <div className="flex flex-wrap gap-1.5">
               {incidentTypes.map((type) => {
                 const isSelected = selectedTypes.includes(type);
