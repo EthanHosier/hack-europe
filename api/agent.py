@@ -16,7 +16,11 @@ from pydantic import BaseModel
 from geopy.geocoders import GoogleV3
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
+import logging
+
 from env import GOOGLE_API_KEY, GOOGLE_MAPS_API_KEY
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class EmergencyInfo(BaseModel):
@@ -42,7 +46,7 @@ class EmergencyAgent:
     def __init__(self, supabase_url: str):
         self.supabase_url = supabase_url
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
+            model="gemini-3-flash-preview",
             temperature=0.7,
             # max_tokens=None,
             timeout=None,
