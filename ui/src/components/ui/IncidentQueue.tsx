@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -13,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  ClipboardList,
   Flame,
   Heart,
   History,
@@ -231,17 +233,51 @@ export const IncidentQueue = forwardRef<
   ref,
 ) {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const filterRef = useRef<HTMLDivElement | null>(null);
 
+  const [showPriority, setShowPriority] = useState(true);
   const [showP2P, setShowP2P] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [flashId, setFlashId] = useState<string | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  useEffect(() => {
+    function handleClickOutside(e: globalThis.MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setFilterOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     scrollTo(id: string) {
-      itemRefs.current[id]?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
+      // Determine which collapsed section the incident lives in and expand it
+      const isInPriority = unassigned.some((i) => i.id === id);
+      const isInP2P = p2pIncidents.some((i) => i.id === id);
+
+      let needsExpansion = false;
+      if (isInPriority && !showPriority) {
+        setShowPriority(true);
+        needsExpansion = true;
+      } else if (isInP2P && !showP2P) {
+        setShowP2P(true);
+        needsExpansion = true;
+      }
+
+      const doScroll = () =>
+        itemRefs.current[id]?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+
+      if (needsExpansion) {
+        // Wait two animation frames for React to re-render and mount the card
+        requestAnimationFrame(() => requestAnimationFrame(doScroll));
+      } else {
+        doScroll();
+      }
     },
   }));
 
@@ -255,12 +291,15 @@ export const IncidentQueue = forwardRef<
     [incidents, selectedTypes],
   );
 
-  // Active = not yet completed
+  // Active = not yet completed (unassigned or currently being matched)
   const unassigned = useMemo(
     () =>
       sortBySeverityThenTime(
         filtered.filter(
-          (i) => i.completedAt === null && i.status === "unassigned" && !i.p2p,
+          (i) =>
+            i.completedAt === null &&
+            (i.status === "unassigned" || i.status === "matching") &&
+            !i.p2p,
         ),
       ),
     [filtered],
@@ -270,7 +309,10 @@ export const IncidentQueue = forwardRef<
     () =>
       sortBySeverityThenTime(
         filtered.filter(
-          (i) => i.completedAt === null && i.status === "unassigned" && i.p2p,
+          (i) =>
+            i.completedAt === null &&
+            (i.status === "unassigned" || i.status === "matching") &&
+            i.p2p,
         ),
       ),
     [filtered],
@@ -415,8 +457,14 @@ export const IncidentQueue = forwardRef<
         <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">
           Filter
         </span>
-        <details className="group relative">
-          <summary className="list-none cursor-pointer rounded border border-[#2a3340] bg-[#141825] px-2 py-2 text-[11px] text-[#c5cad3]">
+        <div ref={filterRef} className="relative">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setFilterOpen((o) => !o)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setFilterOpen((o) => !o); }}
+            className="w-full cursor-pointer rounded border border-[#2a3340] bg-[#141825] px-2 py-2 text-[11px] text-[#c5cad3]"
+          >
             <div className="flex items-center gap-2">
               <div className="flex flex-1 flex-wrap gap-1.5">
                 {selectedTypes.length === 0 ? (
@@ -450,31 +498,35 @@ export const IncidentQueue = forwardRef<
                   <X className="h-3 w-3" />
                 </button>
               )}
-              <ChevronDown className="h-3.5 w-3.5 text-[#7b8798] transition-transform group-open:rotate-180" />
-            </div>
-          </summary>
-          <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-full rounded border border-[#2a3340] bg-[#101723] p-2 shadow-lg">
-            <div className="flex flex-wrap gap-1.5">
-              {incidentTypes.map((type) => {
-                const isSelected = selectedTypes.includes(type);
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => onToggleType(type)}
-                    className={`rounded-full border px-2 py-1 text-[10px] capitalize transition-colors ${
-                      isSelected
-                        ? "border-[#5b8dbf] bg-[#1a2a40] text-[#d6e6f6]"
-                        : "border-[#3a4556] bg-[#141d2a] text-[#9ca3af] hover:border-[#5b8dbf] hover:text-[#cfd8e3]"
-                    }`}
-                  >
-                    {type} ({incidentTypeCounts[type] ?? 0})
-                  </button>
-                );
-              })}
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-[#7b8798] transition-transform ${filterOpen ? "rotate-180" : ""}`}
+              />
             </div>
           </div>
-        </details>
+          {filterOpen && (
+            <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-full rounded border border-[#2a3340] bg-[#101723] p-2 shadow-lg">
+              <div className="flex flex-wrap gap-1.5">
+                {incidentTypes.map((type) => {
+                  const isSelected = selectedTypes.includes(type);
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => onToggleType(type)}
+                      className={`rounded-full border px-2 py-1 text-[10px] capitalize transition-colors ${
+                        isSelected
+                          ? "border-[#5b8dbf] bg-[#1a2a40] text-[#d6e6f6]"
+                          : "border-[#3a4556] bg-[#141d2a] text-[#9ca3af] hover:border-[#5b8dbf] hover:text-[#cfd8e3]"
+                      }`}
+                    >
+                      {type} ({incidentTypeCounts[type] ?? 0})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Recent section (active view only) ── */}
@@ -506,34 +558,49 @@ export const IncidentQueue = forwardRef<
       )}
 
       {/* ── Main scrollable area ── */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-hidden">
         {/* ACTIVE VIEW */}
         {viewMode === "active" && (
-          <>
-            <div className="px-4 pt-3 pb-1.5 flex items-center gap-2 sticky top-0 bg-[#0f1419] z-10 border-b border-[#1e2530]">
+          <div className="h-full flex flex-col">
+            <button
+              className="w-full px-4 pt-3 pb-1.5 flex items-center gap-2 shrink-0 bg-[#0f1419] z-10 border-b border-[#1e2530] hover:bg-[#141825] transition-colors"
+              onClick={() => setShowPriority((s) => !s)}
+            >
+              <ClipboardList className="w-3 h-3 text-[#6b7280]" />
               <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider font-[500]">
-                Priority Queue
+                Priority Tasks
               </span>
               <span className="text-[10px] text-[#5b8dbf] tabular-nums">
                 {unassigned.length}
               </span>
-            </div>
+              <span className="ml-auto text-[#6b7280]">
+                {showPriority ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+              </span>
+            </button>
 
-            {unassigned.length === 0 ? (
-              <div className="px-4 py-10 text-center text-[12px] text-[#4a4a5a]">
-                No active incidents requiring action
+            {showPriority && (
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {unassigned.length === 0 ? (
+                  <div className="px-4 py-10 text-center text-[12px] text-[#4a4a5a]">
+                    No active incidents requiring action
+                  </div>
+                ) : (
+                  unassigned.map((i) => renderCard(i))
+                )}
               </div>
-            ) : (
-              unassigned.map((i) => renderCard(i))
             )}
 
             <button
-              className="w-full px-4 py-2.5 flex items-center gap-2 border-t border-[#1e2530] hover:bg-[#141825] transition-colors"
+              className="shrink-0 w-full px-4 py-2.5 flex items-center gap-2 border-t border-[#1e2530] hover:bg-[#141825] transition-colors"
               onClick={() => setShowP2P((s) => !s)}
             >
               <Users className="w-3 h-3 text-[#6b7280]" />
               <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider font-[500]">
-                P2P Coordinating
+                Peer Coordinating
               </span>
               <span className="text-[10px] text-[#5b8dbf] tabular-nums">
                 {p2pIncidents.length}
@@ -547,20 +614,23 @@ export const IncidentQueue = forwardRef<
               </span>
             </button>
 
-            {showP2P &&
-              (p2pIncidents.length === 0 ? (
-                <div className="px-4 py-4 text-center text-[12px] text-[#4a4a5a] border-b border-[#1e2530]">
-                  No active incidents in peer-to-peer coordination
-                </div>
-              ) : (
-                p2pIncidents.map((i) => renderCard(i))
-              ))}
-          </>
+            {showP2P && (
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {p2pIncidents.length === 0 ? (
+                  <div className="px-4 py-4 text-center text-[12px] text-[#4a4a5a]">
+                    No active incidents in peer-to-peer coordination
+                  </div>
+                ) : (
+                  p2pIncidents.map((i) => renderCard(i))
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* HISTORICAL VIEW — uses completed=true for green RESOLVED styling */}
         {viewMode === "historical" && (
-          <>
+          <div className="h-full overflow-y-auto">
             <div className="px-4 pt-3 pb-1.5 flex items-center gap-2 sticky top-0 bg-[#0f1419] z-10 border-b border-[#1e2530]">
               <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider font-[500]">
                 Resolved Cases
@@ -577,7 +647,7 @@ export const IncidentQueue = forwardRef<
             ) : (
               historical.map((i) => renderCard(i, true))
             )}
-          </>
+          </div>
         )}
       </div>
     </div>

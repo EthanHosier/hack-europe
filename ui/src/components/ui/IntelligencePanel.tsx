@@ -194,7 +194,7 @@ export function IntelligencePanel({
               {selectedIncident.parsedNeedType && (
                 <div>
                   <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
-                    Parsed Need Type
+                    Needs
                   </div>
                   <div className="text-[12px] text-[#e8eaed] leading-relaxed">
                     {selectedIncident.parsedNeedType}
@@ -205,7 +205,7 @@ export function IntelligencePanel({
               {selectedIncident.requiredCapability && (
                 <div>
                   <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
-                    Required Capability
+                    Required Skillset
                   </div>
                   <div className="text-[12px] text-[#5b8dbf]">
                     {selectedIncident.requiredCapability}
