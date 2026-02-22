@@ -92,15 +92,20 @@ export function IntelligencePanel({
     );
   }
 
-  // Mock AI analysis data
-  const analysis = {
-    needType: "Immediate medical assistance required",
-    capability: "Advanced Life Support (ALS)",
-    urgency: "HIGH - Time-critical response needed",
-    confidence: 94,
-    recommendation:
-      "Dispatch nearest ALS-certified unit with cardiac equipment",
-  };
+  const hasAnalysis =
+    selectedIncident.confidence != null ||
+    selectedIncident.parsedNeedType ||
+    selectedIncident.requiredCapability ||
+    selectedIncident.recommendedAction;
+
+  const severityLabel =
+    selectedIncident.severity === "critical"
+      ? "CRITICAL"
+      : selectedIncident.severity === "high"
+      ? "HIGH"
+      : selectedIncident.severity === "moderate"
+      ? "MODERATE"
+      : "LOW";
 
   return (
     <div className="w-[380px] bg-[#0f1419] border-l border-[#1e2530] flex flex-col">
@@ -120,64 +125,89 @@ export function IntelligencePanel({
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
-          {/* Confidence Score */}
-          <div className="bg-[#141825] border border-[#2a3441] rounded p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] text-[#6b7280] uppercase tracking-wider">
-                Confidence
+        {hasAnalysis ? (
+          <div className="p-4 space-y-4">
+            {/* Confidence Score */}
+            {selectedIncident.confidence != null && (
+              <div className="bg-[#141825] border border-[#2a3441] rounded p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-[#6b7280] uppercase tracking-wider">
+                    Confidence
+                  </span>
+                  <span className="text-[14px] text-[#e8eaed] font-[500] tabular-nums">
+                    {selectedIncident.confidence}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-[#1a2332] rounded overflow-hidden">
+                  <div
+                    className="h-full bg-[#3d7a5e] rounded"
+                    style={{ width: `${selectedIncident.confidence}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* P2P Badge */}
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-[10px] px-2 py-1 rounded uppercase tracking-wider font-medium ${
+                  selectedIncident.p2p
+                    ? "bg-[#3d7a5e20] text-[#3d7a5e]"
+                    : "bg-[#8B283520] text-[#c94f5a]"
+                }`}
+              >
+                {selectedIncident.p2p
+                  ? "Peer Assistance OK"
+                  : "Specialist Required"}
               </span>
-              <span className="text-[14px] text-[#e8eaed] font-[500] tabular-nums">
-                {analysis.confidence}%
+              <span className="text-[10px] px-2 py-1 rounded uppercase tracking-wider font-medium bg-[#B8741A20] text-[#B8741A]">
+                {severityLabel}
               </span>
             </div>
-            <div className="w-full h-1.5 bg-[#1a2332] rounded overflow-hidden">
-              <div
-                className="h-full bg-[#3d7a5e] rounded"
-                style={{ width: `${analysis.confidence}%` }}
-              />
+
+            {/* Analysis Fields */}
+            <div className="space-y-3">
+              {selectedIncident.parsedNeedType && (
+                <div>
+                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
+                    Parsed Need Type
+                  </div>
+                  <div className="text-[12px] text-[#e8eaed] leading-relaxed">
+                    {selectedIncident.parsedNeedType}
+                  </div>
+                </div>
+              )}
+
+              {selectedIncident.requiredCapability && (
+                <div>
+                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
+                    Required Capability
+                  </div>
+                  <div className="text-[12px] text-[#5b8dbf]">
+                    {selectedIncident.requiredCapability}
+                  </div>
+                </div>
+              )}
+
+              {selectedIncident.recommendedAction && (
+                <div className="bg-[#1a2332] border-l-2 border-[#5b8dbf] p-3 rounded">
+                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
+                    Recommended Action
+                  </div>
+                  <div className="text-[12px] text-[#e8eaed] leading-relaxed">
+                    {selectedIncident.recommendedAction}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Analysis Fields */}
-          <div className="space-y-3">
-            <div>
-              <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
-                Parsed Need Type
-              </div>
-              <div className="text-[12px] text-[#e8eaed] leading-relaxed">
-                {analysis.needType}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
-                Required Capability
-              </div>
-              <div className="text-[12px] text-[#5b8dbf]">
-                {analysis.capability}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
-                Urgency Classification
-              </div>
-              <div className="text-[12px] text-[#c94f5a]">
-                {analysis.urgency}
-              </div>
-            </div>
-
-            <div className="bg-[#1a2332] border-l-2 border-[#5b8dbf] p-3 rounded">
-              <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">
-                Recommended Action
-              </div>
-              <div className="text-[12px] text-[#e8eaed] leading-relaxed">
-                {analysis.recommendation}
-              </div>
-            </div>
+        ) : (
+          <div className="p-4 flex items-center justify-center py-8">
+            <p className="text-[12px] text-[#6b7280]">
+              AI analysis not yet available for this incident
+            </p>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Responder Candidates Section */}

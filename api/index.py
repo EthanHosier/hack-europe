@@ -160,6 +160,11 @@ class CaseResponse(BaseModel):
     status: str
     category: Optional[str] = None
     stress_level: Optional[str] = None
+    p2p: bool = False
+    confidence: Optional[int] = None
+    required_capability: Optional[str] = None
+    parsed_need_type: Optional[str] = None
+    recommended_action: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None
@@ -214,6 +219,11 @@ class LiveEventResponse(BaseModel):
     case_category: Optional[str] = None
     case_title: Optional[str] = None
     completed_at: Optional[datetime] = None
+    p2p: bool = False
+    confidence: Optional[int] = None
+    required_capability: Optional[str] = None
+    parsed_need_type: Optional[str] = None
+    recommended_action: Optional[str] = None
 
 
 # Emergency categorization patterns
@@ -949,6 +959,7 @@ async def create_quick_emergency(request: QuickEmergencyRequest) -> CaseResponse
 
             user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"quick-{info.social_security_number}"))
             agent = EmergencyAgent(SUPABASE_URL)
+            agent.analyse_emergency(info)
             with psycopg.connect(SUPABASE_POSTGRES_URL, row_factory=dict_row) as conn:
                 case_id = agent.create_case(info, user_id, conn)
 
@@ -1160,7 +1171,12 @@ async def get_live_events(
                         c.status AS case_status,
                         c.category AS case_category,
                         c.title AS case_title,
-                        c.completed_at
+                        c.completed_at,
+                        c.p2p,
+                        c.confidence,
+                        c.required_capability,
+                        c.parsed_need_type,
+                        c.recommended_action
                     FROM event e
                     JOIN "case" c ON c.id = e.case_id
                     WHERE e.latitude IS NOT NULL AND e.longitude IS NOT NULL
