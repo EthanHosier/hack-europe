@@ -1,5 +1,6 @@
 -- RPC: closest users WITH specialties by combined geographical + semantic distance (equally weighted).
 -- Inner join so only users that have at least one row in ethan_user_speciality.
+-- Excludes users who are assigned to any case (in responder_assignment).
 -- Call via Supabase: supabase.rpc('search_users_by_embedding_and_location', { query_embedding: [...], lat: 59.33, lng: 18.06, match_count: 10 })
 
 CREATE OR REPLACE FUNCTION search_users_by_embedding_and_location(
@@ -26,6 +27,7 @@ AS $$
     FROM "user" u
     INNER JOIN user_semantic s ON s.user_id = u.id
     WHERE u.latitude IS NOT NULL AND u.longitude IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM responder_assignment ra WHERE ra.responder_id = u.id)
   )
   SELECT u.*
   FROM "user" u
