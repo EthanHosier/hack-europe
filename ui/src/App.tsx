@@ -187,10 +187,6 @@ export default function App() {
     );
   };
 
-  const handleSelectAllTypes = () => {
-    setSelectedTypes(ALL_INCIDENT_TYPES);
-  };
-
   const handleClearAllTypes = () => {
     setSelectedTypes([]);
   };
@@ -245,7 +241,6 @@ export default function App() {
           selectedTypes={selectedTypes}
           incidentTypeCounts={incidentTypeCounts}
           onToggleType={handleToggleType}
-          onSelectAllTypes={handleSelectAllTypes}
           onClearAllTypes={handleClearAllTypes}
         />
 
