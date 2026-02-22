@@ -6,6 +6,7 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronDown,
   Clock,
   Flame,
@@ -73,6 +74,104 @@ const typeIcons = {
   other: AlertTriangle,
 };
 
+function IncidentCard({
+  incident,
+  isSelected,
+  onClick,
+  getTimeSince,
+  itemRef,
+  completed = false,
+}: {
+  incident: Incident;
+  isSelected: boolean;
+  onClick: () => void;
+  getTimeSince: (timestamp: Date) => string;
+  itemRef?: (el: HTMLDivElement | null) => void;
+  completed?: boolean;
+}) {
+  const Icon = typeIcons[incident.type];
+
+  return (
+    <div
+      ref={itemRef}
+      onClick={onClick}
+      className={`
+        px-4 py-3 border-b border-[#1e2530] cursor-pointer transition-colors
+        ${completed ? "opacity-60" : ""}
+        ${
+          isSelected
+            ? "bg-[#1a2332] border-l-2 border-l-[#5b8dbf]"
+            : "hover:bg-[#141825]"
+        }
+      `}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="w-8 h-8 rounded flex items-center justify-center mt-0.5"
+          style={{
+            backgroundColor: completed
+              ? "#22c55e15"
+              : `${severityColors[incident.severity]}15`,
+          }}
+        >
+          {completed ? (
+            <CheckCircle2 className="w-4 h-4 text-[#22c55e]" />
+          ) : (
+            <Icon
+              className="w-4 h-4"
+              style={{ color: severityColors[incident.severity] }}
+            />
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <p className="text-[13px] text-[#e8eaed] leading-tight">
+              {incident.description}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[11px] text-[#6b7280]">
+              {incident.region}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {completed ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-medium bg-[#22c55e20] text-[#22c55e]">
+                RESOLVED
+              </span>
+            ) : (
+              <>
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-medium"
+                  style={{
+                    backgroundColor: `${severityColors[incident.severity]}20`,
+                    color: severityColors[incident.severity],
+                  }}
+                >
+                  {severityLabels[incident.severity]}
+                </span>
+                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">
+                  {statusLabels[incident.status]}
+                </span>
+              </>
+            )}
+
+            <span className="ml-auto flex items-center gap-1 text-[10px] text-[#6b7280]">
+              <Clock className="w-3 h-3" />
+              {completed && incident.completedAt
+                ? getTimeSince(incident.completedAt)
+                : getTimeSince(incident.timestamp)}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const IncidentQueue = forwardRef<
   IncidentQueueHandle,
   IncidentQueueProps
@@ -91,6 +190,13 @@ export const IncidentQueue = forwardRef<
   ref
 ) {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const completedIncidents = incidents.filter(
+    (incident) => incident.completedAt !== null
+  );
+  const activeIncidents = incidents.filter(
+    (incident) => incident.completedAt === null
+  );
 
   useImperativeHandle(ref, () => ({
     scrollTo(id: string) {
@@ -220,79 +326,45 @@ export const IncidentQueue = forwardRef<
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {incidents.map((incident) => {
-          const Icon = typeIcons[incident.type];
-          const isSelected = incident.id === selectedId;
+        {activeIncidents.map((incident) => (
+          <IncidentCard
+            key={incident.id}
+            incident={incident}
+            isSelected={incident.id === selectedId}
+            onClick={() => onSelectIncident(incident.id)}
+            getTimeSince={getTimeSince}
+            itemRef={(el) => {
+              itemRefs.current[incident.id] = el;
+            }}
+          />
+        ))}
 
-          return (
-            <div
-              key={incident.id}
-              ref={(el) => {
-                itemRefs.current[incident.id] = el;
-              }}
-              onClick={() => onSelectIncident(incident.id)}
-              className={`
-                px-4 py-3 border-b border-[#1e2530] cursor-pointer transition-colors
-                ${
-                  isSelected
-                    ? "bg-[#1a2332] border-l-2 border-l-[#5b8dbf]"
-                    : "hover:bg-[#141825]"
-                }
-              `}
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className="w-8 h-8 rounded flex items-center justify-center mt-0.5"
-                  style={{
-                    backgroundColor: `${severityColors[incident.severity]}15`,
-                  }}
-                >
-                  <Icon
-                    className="w-4 h-4"
-                    style={{ color: severityColors[incident.severity] }}
-                  />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <p className="text-[13px] text-[#e8eaed] leading-tight">
-                      {incident.description}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-[11px] text-[#6b7280]">
-                      {incident.region}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-medium"
-                      style={{
-                        backgroundColor: `${
-                          severityColors[incident.severity]
-                        }20`,
-                        color: severityColors[incident.severity],
-                      }}
-                    >
-                      {severityLabels[incident.severity]}
-                    </span>
-
-                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">
-                      {statusLabels[incident.status]}
-                    </span>
-
-                    <span className="ml-auto flex items-center gap-1 text-[10px] text-[#6b7280]">
-                      <Clock className="w-3 h-3" />
-                      {getTimeSince(incident.timestamp)}
-                    </span>
-                  </div>
-                </div>
-              </div>
+        {completedIncidents.length > 0 && (
+          <>
+            <div className="h-10 border-b border-[#1e2530] flex items-center px-4">
+              <CheckCircle2 className="w-3.5 h-3.5 text-[#22c55e] mr-2" />
+              <span className="text-[11px] text-[#6b7280] uppercase tracking-wider font-medium">
+                Resolved
+              </span>
+              <span className="ml-auto text-[11px] text-[#4a5568] tabular-nums font-medium">
+                {completedIncidents.length}
+              </span>
             </div>
-          );
-        })}
+            {completedIncidents.map((incident) => (
+              <IncidentCard
+                key={incident.id}
+                incident={incident}
+                isSelected={incident.id === selectedId}
+                onClick={() => onSelectIncident(incident.id)}
+                getTimeSince={getTimeSince}
+                itemRef={(el) => {
+                  itemRefs.current[incident.id] = el;
+                }}
+                completed
+              />
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

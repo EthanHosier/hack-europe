@@ -60,6 +60,7 @@ function toIncident(event: LiveEventResponse): Incident {
       : parsedTimestamp,
     lat: event.latitude,
     lng: event.longitude,
+    completedAt: event.completed_at ? new Date(event.completed_at) : null,
   };
 }
 
@@ -123,7 +124,7 @@ const mockResponders = [
 
 export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
-    null,
+    null
   );
   const [selectedTypes, setSelectedTypes] =
     useState<Incident["type"][]>(ALL_INCIDENT_TYPES);
@@ -134,17 +135,16 @@ export default function App() {
         refetchInterval: 5000,
         refetchIntervalInBackground: true,
       },
-    },
+    }
   );
   const liveEvents = liveEventsResponse?.data ?? [];
   const incidents = useMemo<Incident[]>(
     () => liveEvents.map(toIncident),
-    [liveEvents],
+    [liveEvents]
   );
   const filteredIncidents = useMemo(
-    () =>
-      incidents.filter((incident) => selectedTypes.includes(incident.type)),
-    [incidents, selectedTypes],
+    () => incidents.filter((incident) => selectedTypes.includes(incident.type)),
+    [incidents, selectedTypes]
   );
   const incidentTypeCounts = useMemo<Record<Incident["type"], number>>(
     () =>
@@ -160,9 +160,9 @@ export default function App() {
           disaster: 0,
           emergency: 0,
           other: 0,
-        },
+        }
       ),
-    [incidents],
+    [incidents]
   );
   const queueRef = useRef<IncidentQueueHandle>(null);
 
@@ -174,13 +174,15 @@ export default function App() {
   const handleDispatch = (responderId: string, incidentId: string) => {
     // TODO: trigger API call to dispatch responder to incident - update state in BE
     console.log(
-      `Dispatching responder ${responderId} to incident ${incidentId}`,
+      `Dispatching responder ${responderId} to incident ${incidentId}`
     );
   };
 
   const handleToggleType = (type: Incident["type"]) => {
     setSelectedTypes((prev) =>
-      prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type],
+      prev.includes(type)
+        ? prev.filter((item) => item !== type)
+        : [...prev, type]
     );
   };
 
