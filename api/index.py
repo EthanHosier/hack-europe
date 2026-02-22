@@ -131,6 +131,7 @@ class QuickEmergencyRequest(BaseModel):
     emergency_description: str
     category: Literal["fuel", "medical", "shelter", "food_water", "rescue", "other"] = "other"
     severity: int = 3
+    stress_level: Optional[Literal["Low", "Medium", "High"]] = None
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -139,6 +140,16 @@ class QuickEmergencyRequest(BaseModel):
         if v < 1 or v > 5:
             raise ValueError("severity must be between 1 and 5")
         return v
+
+    @field_validator("stress_level", mode="before")
+    @classmethod
+    def normalize_stress_level(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        s = str(v).strip().capitalize()
+        if s not in ("Low", "Medium", "High"):
+            return None
+        return s
 
 
 class CaseResponse(BaseModel):
@@ -910,6 +921,7 @@ async def create_quick_emergency(request: QuickEmergencyRequest) -> CaseResponse
             emergency_description=request.emergency_description,
             category=request.category,
             severity=request.severity,
+            stress_level=request.stress_level,
         )
 
         from geopy.geocoders import GoogleV3
