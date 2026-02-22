@@ -113,6 +113,7 @@ class SearchUsersBySpecialityRequest(BaseModel):
 class UserWithNotifiedResponse(UserResponse):
     notified_for_case: bool = False
     skills: List[str] = []
+    distance_km: Optional[float] = None
 
 
 class DispatchCaseToUserRequest(BaseModel):
@@ -889,11 +890,11 @@ async def get_current_user(user_id: str = Header(alias="X-User-Id")) -> UserResp
 
 @app.get("/users/search-by-speciality", response_model=List[UserWithNotifiedResponse])
 def search_users_by_speciality(
-    lat: float = Query(..., description="Latitude"),
-    lng: float = Query(..., description="Longitude"),
-    query: str = Query(..., description="Search query for semantic match"),
-    max_match_count: int = Query(10, ge=1, le=100),
-    case_id: Optional[str] = Query(None),
+    lat: float,
+    lng: float,
+    query: str,
+    max_match_count: int = 10,
+    case_id: Optional[str] = None,
 ) -> List[UserWithNotifiedResponse]:
     """Find users with specialties closest by geographical + semantic distance. Generates embedding for query. Optionally pass case_id to get notified_for_case per user."""
     if not OPENAI_API_KEY:
@@ -924,8 +925,8 @@ def search_users_by_speciality(
     for r in rows:
         r = dict(r)
         r["id"] = str(r["id"])
-        # skills from DB can be None or list; ensure list of strings
         r["skills"] = list(r["skills"]) if r.get("skills") else []
+        r["distance_km"] = round(r["distance_km"], 2) if r.get("distance_km") is not None else None
         out.append(UserWithNotifiedResponse(**r))
     return out
 
